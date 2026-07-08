@@ -18,6 +18,8 @@
 
 from typing import Any
 import proto
+from google.protobuf.message import Message as PbMessage
+from google.protobuf.json_format import MessageToDict
 import logging
 from google.ads.googleads.client import GoogleAdsClient
 from google.ads.googleads.v24.services.services.google_ads_service import (
@@ -131,6 +133,8 @@ def format_output_value(value: Any) -> Any:
         return value.name
     elif isinstance(value, proto.Message):
         return proto.Message.to_dict(value)
+    elif isinstance(value, PbMessage):
+        return MessageToDict(value, preserving_proto_field_name=True)
     elif hasattr(value, "__iter__") and not isinstance(value, (str, bytes)):
         return [format_output_value(v) for v in value]
     else:
