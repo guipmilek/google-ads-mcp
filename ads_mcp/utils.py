@@ -40,6 +40,7 @@ _GAQL_FILENAME = "gaql_resources.txt"
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # OAuth scope for the Google Ads API. Google Ads does not publish a separate
 # read-only scope; access is restricted to read methods by the tools this
