@@ -79,7 +79,7 @@ class ToolsConfig:
 
     @classmethod
     def load(cls, filepath: str | None = None) -> "ToolsConfig":
-        """Loads a configuration from a YAML file.
+        """Loads configuration from a YAML file.
 
         Resolves the config path (explicit argument, ``GOOGLE_ADS_MCP_TOOLS_CONFIG``
         env var, working-directory file, then the bundled default). Raises if a
@@ -171,7 +171,7 @@ class ToolsConfig:
 
         enabled_tools = category_config.get("enabled_tools")
         if enabled_tools is None:
-            # No explicit enabled_tools filter means all tools are enabled
+            # No explicit enabled_tools filter means all are enabled
             return True
 
         # Handle list of dictionaries or list of strings
