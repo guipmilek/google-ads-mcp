@@ -44,9 +44,7 @@ class TestMutationEngine(unittest.TestCase):
                 "update_mask": ["status"],
             }
         ]
-        first = mutation_engine._operation_hash(
-            "8448275903", operations, False
-        )
+        first = mutation_engine._operation_hash("8448275903", operations, False)
         second = mutation_engine._operation_hash(
             "8448275903", operations, False
         )
