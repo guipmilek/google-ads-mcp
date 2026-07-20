@@ -64,9 +64,13 @@ def _prepare_operation(
     if not resource:
         raise ToolError("operation.resource is required.")
 
-    wrapper_field, operation, resource_name = _resolve_operation(client, resource)
+    wrapper_field, operation, resource_name = _resolve_operation(
+        client, resource
+    )
     if action not in operation._pb.DESCRIPTOR.fields_by_name:
-        raise ToolError(f"{resource_name} does not support the '{action}' action.")
+        raise ToolError(
+            f"{resource_name} does not support the '{action}' action."
+        )
 
     prepared: Dict[str, Any] = {"action": action, "resource": resource_name}
     if action == "remove":
@@ -254,12 +258,14 @@ def update_resource(
     """Updates one resource with an explicit field mask and confirmation."""
     return _run_mutations(
         customer_id,
-        [{
-            "action": "update",
-            "resource": resource,
-            "data": data,
-            "update_mask": update_mask,
-        }],
+        [
+            {
+                "action": "update",
+                "resource": resource,
+                "data": data,
+                "update_mask": update_mask,
+            }
+        ],
         validate_only=validate_only,
         partial_failure=False,
         confirmation=confirmation,
@@ -276,11 +282,13 @@ def remove_resource(
     """Removes one resource when deletion is enabled and confirmed."""
     return _run_mutations(
         customer_id,
-        [{
-            "action": "remove",
-            "resource": resource,
-            "resource_name": resource_name,
-        }],
+        [
+            {
+                "action": "remove",
+                "resource": resource,
+                "resource_name": resource_name,
+            }
+        ],
         validate_only=validate_only,
         partial_failure=False,
         confirmation=confirmation,
