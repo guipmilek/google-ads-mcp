@@ -128,10 +128,14 @@ def _normalize_update_mask(
         if not value:
             continue
         if value == "resource_name":
-            raise ToolError("resource_name must not be included in update_mask.")
+            raise ToolError(
+                "resource_name must not be included in update_mask."
+            )
         normalized.append(value)
     if not normalized:
-        raise ToolError("update_mask must contain at least one mutable field path.")
+        raise ToolError(
+            "update_mask must contain at least one mutable field path."
+        )
     return sorted(set(normalized))
 
 
@@ -192,7 +196,9 @@ def _required_confirmation_verb(operations: List[Dict[str, Any]]) -> str:
     if resources & _SENSITIVE_RESOURCES:
         return "SENSITIVE"
 
-    has_remove = any(operation["action"] == "remove" for operation in operations)
+    has_remove = any(
+        operation["action"] == "remove" for operation in operations
+    )
     has_enable = any(
         _contains_enabled_status(operation.get("data"))
         for operation in operations
