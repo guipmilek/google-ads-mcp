@@ -175,7 +175,9 @@ def get_mutation_schema(
         raise ToolError("max_depth must be between 0 and 3.")
 
     client = utils.get_googleads_client()
-    wrapper_field, operation, resource_name = _resolve_operation(client, resource)
+    wrapper_field, operation, resource_name = _resolve_operation(
+        client, resource
+    )
     operation_descriptor = operation._pb.DESCRIPTOR
     actions = [
         action
