@@ -1,0 +1,1 @@
+from ads_mcp.server import mcp
