@@ -16,46 +16,42 @@
 
 """Common utilities used by the MCP server."""
 
-from typing import Any
-import proto
-from google.protobuf.message import Message as PbMessage
-from google.protobuf.json_format import MessageToDict
-import logging
-from google.ads.googleads.client import GoogleAdsClient
-from google.ads.googleads.v24.services.services.google_ads_service import (
-    GoogleAdsServiceClient,
-)
-
-from google.ads.googleads.util import get_nested_attr
-import google.auth
-from ads_mcp.mcp_header_interceptor import MCPHeaderInterceptor
-import os
-import importlib.resources
+from collections.abc import Mapping
 import contextlib
+from enum import Enum
+import importlib.resources
+import logging
+import os
+import re
 import subprocess
+from typing import Any
 from unittest.mock import patch
 
-# filename for generated field information used by search
+from google.ads.googleads.client import GoogleAdsClient
+from google.ads.googleads.util import get_nested_attr
+import google.auth
+from google.protobuf.json_format import MessageToDict
+from google.protobuf.message import Message as PbMessage
+import proto
+
+from ads_mcp.mcp_header_interceptor import MCPHeaderInterceptor
+
 _GAQL_FILENAME = "gaql_resources.txt"
+_PROTO_PLUS_RESERVED_FIELD_ALIASES = {"type_": "type"}
+_INTEGER_STRING_PATTERN = re.compile(r"^-?\d+$")
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-# OAuth scope for the Google Ads API. Google Ads does not publish a separate
-# read-only scope; access is restricted to read methods by the tools this
-# server exposes (see ads_mcp/tools/).
+# Google Ads does not publish a separate read-only OAuth scope. Mutation access
+# is constrained by the connector's tools and safety policy.
 _ADS_SCOPE = "https://www.googleapis.com/auth/adwords"
 
 
 @contextlib.contextmanager
 def prevent_stdio_inheritance():
-    """Prevents child processes from inheriting the parent's stdio handles.
-
-    Fixes a deadlock on Windows where `google.auth.default()` spawns `gcloud`
-    via subprocess without redirecting stdin, causing it to inherit the
-    ProactorEventLoop's overlapping I/O handles used by MCP's stdio transport.
-    """
+    """Prevents child processes from inheriting the parent's stdio handles."""
     original_popen = subprocess.Popen
 
     def safe_popen(*args, **kwargs):
@@ -68,13 +64,12 @@ def prevent_stdio_inheritance():
 
 
 def _create_credentials() -> google.auth.credentials.Credentials:
-    """Returns Application Default Credentials with the Google Ads scope, or the FastMCP token if found."""
+    """Returns ADC credentials or the FastMCP access token when available."""
     from fastmcp.server.dependencies import get_access_token
     from google.oauth2.credentials import Credentials
 
     token_obj = get_access_token()
     if token_obj and token_obj.token:
-        # Create credentials using the access token provided by FastMCP
         return Credentials(token=token_obj.token)
 
     with prevent_stdio_inheritance():
@@ -83,7 +78,7 @@ def _create_credentials() -> google.auth.credentials.Credentials:
 
 
 def _get_developer_token() -> str:
-    """Returns the developer token from the environment variable GOOGLE_ADS_DEVELOPER_TOKEN."""
+    """Returns the developer token from GOOGLE_ADS_DEVELOPER_TOKEN."""
     dev_token = os.environ.get("GOOGLE_ADS_DEVELOPER_TOKEN")
     if dev_token is None:
         raise ValueError(
@@ -93,7 +88,7 @@ def _get_developer_token() -> str:
 
 
 def _get_login_customer_id() -> str | None:
-    """Returns login customer id, if set, from the environment variable GOOGLE_ADS_LOGIN_CUSTOMER_ID."""
+    """Returns GOOGLE_ADS_LOGIN_CUSTOMER_ID when configured."""
     return os.environ.get("GOOGLE_ADS_LOGIN_CUSTOMER_ID")
 
 
@@ -104,18 +99,14 @@ def _get_googleads_client() -> GoogleAdsClient:
         "use_proto_plus": True,
     }
 
-    # If the login-customer-id is not set, avoid setting None.
     login_customer_id = _get_login_customer_id()
-
     if login_customer_id:
         args["login_customer_id"] = login_customer_id
 
-    client = GoogleAdsClient(**args)
-
-    return client
+    return GoogleAdsClient(**args)
 
 
-def get_googleads_service(serviceName: str) -> GoogleAdsServiceClient:
+def get_googleads_service(serviceName: str) -> Any:
     return _get_googleads_client().get_service(
         serviceName, interceptors=[MCPHeaderInterceptor()]
     )
@@ -129,17 +120,58 @@ def get_googleads_client():
     return _get_googleads_client()
 
 
-def format_output_value(value: Any) -> Any:
-    if isinstance(value, proto.Enum):
+def _normalize_protobuf_json(
+    value: Any, field_name: str | None = None
+) -> Any:
+    """Normalizes nested protobuf JSON and generic connector values."""
+    if isinstance(value, (Enum, proto.Enum)):
         return value.name
-    elif isinstance(value, proto.Message):
-        return proto.Message.to_dict(value)
-    elif isinstance(value, PbMessage):
-        return MessageToDict(value, preserving_proto_field_name=True)
-    elif hasattr(value, "__iter__") and not isinstance(value, (str, bytes)):
-        return [format_output_value(v) for v in value]
-    else:
-        return value
+    if isinstance(value, Mapping):
+        output: dict[str, Any] = {}
+        for raw_key, nested in value.items():
+            key = _PROTO_PLUS_RESERVED_FIELD_ALIASES.get(raw_key, raw_key)
+            output[key] = _normalize_protobuf_json(nested, key)
+        return output
+    if isinstance(value, set):
+        return [
+            _normalize_protobuf_json(item, field_name)
+            for item in sorted(value, key=repr)
+        ]
+    if isinstance(value, (list, tuple)):
+        return [_normalize_protobuf_json(item, field_name) for item in value]
+    if (
+        isinstance(value, str)
+        and field_name is not None
+        and field_name.endswith("_micros")
+        and _INTEGER_STRING_PATTERN.fullmatch(value)
+    ):
+        return int(value)
+    return value
+
+
+def _protobuf_message_to_dict(
+    value: proto.Message | PbMessage,
+) -> dict[str, Any]:
+    message = value._pb if isinstance(value, proto.Message) else value
+    raw = MessageToDict(
+        message,
+        preserving_proto_field_name=True,
+        use_integers_for_enums=False,
+    )
+    return _normalize_protobuf_json(raw)
+
+
+def format_output_value(value: Any) -> Any:
+    if isinstance(value, (proto.Message, PbMessage)):
+        return _protobuf_message_to_dict(value)
+    if isinstance(value, (Enum, proto.Enum, Mapping, set, list, tuple)):
+        return _normalize_protobuf_json(value)
+    if (
+        hasattr(value, "__iter__")
+        and not isinstance(value, (str, bytes, bytearray))
+    ):
+        return [format_output_value(item) for item in value]
+    return value
 
 
 def format_output_row(row: proto.Message, attributes):
@@ -151,5 +183,4 @@ def format_output_row(row: proto.Message, attributes):
 
 def get_gaql_resources_filepath():
     package_root = importlib.resources.files("ads_mcp")
-    file_path = package_root.joinpath(_GAQL_FILENAME)
-    return file_path
+    return package_root.joinpath(_GAQL_FILENAME)
