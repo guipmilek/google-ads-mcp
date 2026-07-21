@@ -21,6 +21,11 @@ from typing import Any, Dict, List
 from fastmcp.exceptions import ToolError
 from google.protobuf.descriptor import FieldDescriptor
 
+try:
+    from google.api import field_behavior_pb2
+except ImportError:  # pragma: no cover - google-ads installs this dependency.
+    field_behavior_pb2 = None
+
 import ads_mcp.utils as utils
 from ads_mcp.mutation_safety import (
     _ACTIONS,
@@ -30,7 +35,7 @@ from ads_mcp.mutation_safety import (
 
 
 def _resolve_operation(client: Any, resource: str) -> tuple[Any, Any, str]:
-    """Returns the MutateOperation field, operation message, and resource type."""
+    """Returns the operation field, operation message, and resource type."""
     requested = _canonical_resource_key(resource)
     mutate_operation = client.get_type("MutateOperation")
 
@@ -104,6 +109,39 @@ def _field_type(field: FieldDescriptor) -> str:
     return _SCALAR_FIELD_TYPES.get(field.type, f"protobuf_type_{field.type}")
 
 
+def _field_behaviors(field: FieldDescriptor) -> List[str]:
+    if field_behavior_pb2 is None:
+        return []
+    try:
+        values = field.GetOptions().Extensions[
+            field_behavior_pb2.field_behavior
+        ]
+        return [
+            field_behavior_pb2.FieldBehavior.Name(value)
+            for value in values
+        ]
+    except (KeyError, TypeError, ValueError):
+        return []
+
+
+def _field_permissions(field: FieldDescriptor) -> Dict[str, Any]:
+    behaviors = _field_behaviors(field)
+    output_only = "OUTPUT_ONLY" in behaviors
+    immutable = "IMMUTABLE" in behaviors
+    is_resource_name = field.name == "resource_name"
+    return {
+        "field_behaviors": behaviors,
+        "required": "REQUIRED" in behaviors,
+        "output_only": output_only,
+        "immutable": immutable,
+        "writable_on_create": not output_only,
+        "writable_on_update": (
+            not output_only and not immutable and not is_resource_name
+        ),
+        "identifier_for_update": is_resource_name,
+    }
+
+
 def _describe_message(
     descriptor: Any,
     depth: int,
@@ -120,6 +158,7 @@ def _describe_message(
             "name": field.name,
             "type": _field_type(field),
             "repeated": field.is_repeated,
+            **_field_permissions(field),
         }
         if field.containing_oneof is not None:
             item["oneof"] = field.containing_oneof.name
@@ -137,6 +176,117 @@ def _describe_message(
                 item["fields"] = nested
         output.append(item)
     return output
+
+
+def _input_field_name(value: str) -> str:
+    return "type" if value == "type_" else value
+
+
+def _normalize_mutation_input(value: Any, path: str = "data") -> Any:
+    """Normalizes proto-plus aliases and rejects ambiguous duplicate keys."""
+    if isinstance(value, dict):
+        output: dict[str, Any] = {}
+        for raw_key, nested in value.items():
+            field_name = _input_field_name(str(raw_key))
+            if field_name in output:
+                raise ToolError(
+                    f"Duplicate mutation field alias at '{path}.{field_name}'."
+                )
+            output[field_name] = _normalize_mutation_input(
+                nested, f"{path}.{field_name}"
+            )
+        return output
+    if isinstance(value, list):
+        return [
+            _normalize_mutation_input(item, f"{path}[{index}]")
+            for index, item in enumerate(value)
+        ]
+    return value
+
+
+def _validate_mutation_data(
+    descriptor: Any,
+    data: Dict[str, Any],
+    action: str,
+    path: str = "",
+) -> None:
+    """Rejects known output-only or immutable fields before the API call."""
+    for raw_name, value in data.items():
+        field_name = _input_field_name(str(raw_name))
+        field = descriptor.fields_by_name.get(field_name)
+        if field is None:
+            # ParseDict returns the authoritative unknown-field error.
+            continue
+
+        field_path = f"{path}.{field_name}" if path else field_name
+        permissions = _field_permissions(field)
+        if permissions["output_only"]:
+            raise ToolError(
+                f"Field '{field_path}' is output-only and cannot be mutated."
+            )
+        if (
+            action == "update"
+            and permissions["immutable"]
+            and field_path != "resource_name"
+        ):
+            raise ToolError(
+                f"Field '{field_path}' is immutable and cannot be updated."
+            )
+
+        if field.message_type is None or value is None:
+            continue
+        if field.message_type.GetOptions().map_entry:
+            continue
+        if isinstance(value, dict):
+            _validate_mutation_data(
+                field.message_type, value, action, field_path
+            )
+        elif field.is_repeated and isinstance(value, list):
+            for index, item in enumerate(value):
+                if isinstance(item, dict):
+                    _validate_mutation_data(
+                        field.message_type,
+                        item,
+                        action,
+                        f"{field_path}[{index}]",
+                    )
+
+
+def _validate_update_mask_paths(
+    descriptor: Any, update_mask: List[str]
+) -> None:
+    """Rejects unknown, output-only, or immutable update-mask paths."""
+    for path in update_mask:
+        current_descriptor = descriptor
+        segments = path.split(".")
+        for index, segment in enumerate(segments):
+            field = current_descriptor.fields_by_name.get(segment)
+            if field is None:
+                raise ToolError(
+                    f"Unknown update_mask field path '{path}'."
+                )
+            permissions = _field_permissions(field)
+            if permissions["output_only"]:
+                raise ToolError(
+                    f"update_mask field '{path}' is output-only."
+                )
+            if permissions["immutable"]:
+                raise ToolError(
+                    f"update_mask field '{path}' is immutable."
+                )
+
+            is_last = index == len(segments) - 1
+            if is_last:
+                continue
+            if field.message_type is None:
+                raise ToolError(
+                    f"update_mask field '{path}' traverses a scalar field."
+                )
+            if field.message_type.GetOptions().map_entry:
+                raise ToolError(
+                    f"update_mask field '{path}' traverses a map field."
+                )
+            current_descriptor = field.message_type
 
 
 def list_mutable_resources() -> List[Dict[str, Any]]:
@@ -170,7 +320,7 @@ def get_mutation_schema(
     resource: str,
     max_depth: int = 1,
 ) -> Dict[str, Any]:
-    """Returns writable protobuf fields for a mutable Google Ads resource."""
+    """Returns protobuf fields and mutability metadata for a resource."""
     if max_depth < 0 or max_depth > 3:
         raise ToolError("max_depth must be between 0 and 3.")
 
@@ -198,6 +348,11 @@ def get_mutation_schema(
             _describe_message(resource_descriptor, max_depth)
             if resource_descriptor is not None
             else []
+        ),
+        "field_behavior_note": (
+            "Do not send output-only fields. Immutable fields may be supplied "
+            "during create but not changed during update. resource_name is the "
+            "update identifier and must not appear in update_mask."
         ),
         "update_mask_note": (
             "Update masks use resource-relative paths such as 'status' or "
