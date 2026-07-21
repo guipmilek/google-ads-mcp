@@ -153,6 +153,26 @@ def _format_google_ads_exception(ex: GoogleAdsException) -> ToolError:
     return ToolError(f"Request ID: {ex.request_id}\n" + "\n".join(messages))
 
 
+def _build_mutate_request(
+    client: Any,
+    customer_id: str,
+    mutate_operations: List[Any],
+    *,
+    partial_failure: bool,
+    validate_only: bool,
+) -> Any:
+    """Builds the request object required by the generated API client."""
+    request = client.get_type("MutateGoogleAdsRequest")
+    request.customer_id = customer_id
+    request.mutate_operations.extend(mutate_operations)
+    request.partial_failure = partial_failure
+    request.validate_only = validate_only
+    request.response_content_type = (
+        client.enums.ResponseContentTypeEnum.MUTABLE_RESOURCE
+    )
+    return request
+
+
 def _run_mutations(
     customer_id: str,
     operations: List[Dict[str, Any]],
@@ -200,16 +220,15 @@ def _run_mutations(
     service = client.get_service(
         "GoogleAdsService", interceptors=[MCPHeaderInterceptor()]
     )
+    request = _build_mutate_request(
+        client,
+        normalized_customer_id,
+        mutate_operations,
+        partial_failure=partial_failure,
+        validate_only=validate_only,
+    )
     try:
-        response = service.mutate(
-            customer_id=normalized_customer_id,
-            mutate_operations=mutate_operations,
-            partial_failure=partial_failure,
-            validate_only=validate_only,
-            response_content_type=(
-                client.enums.ResponseContentTypeEnum.MUTABLE_RESOURCE
-            ),
-        )
+        response = service.mutate(request=request)
     except GoogleAdsException as ex:
         raise _format_google_ads_exception(ex) from ex
 
