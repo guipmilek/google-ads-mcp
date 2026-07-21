@@ -1,0 +1,59 @@
+name: Apply mutation hardening
+
+on:
+  push:
+    branches:
+      - fix/harden-mutation-workflow
+    paths:
+      - .github/workflows/apply-mutation-hardening.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out hardening branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/harden-mutation-workflow
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Apply reviewed payload
+        run: python .github/scripts/apply_mutation_hardening.py
+
+      - name: Compile sources
+        run: python -m compileall -q ads_mcp tests
+
+      - name: Install project
+        run: python -m pip install -e .
+
+      - name: Run mutation regression suite
+        run: |
+          python -m unittest \
+            tests.mutation_engine_test \
+            tests.mutate_request_test \
+            tests.mutation_schema_test \
+            tests.utils_format_test
+
+      - name: Remove one-shot files
+        run: |
+          rm -f .github/scripts/mutation-hardening.part*
+          rm -f .github/scripts/apply_mutation_hardening.py
+          rm -f .github/workflows/apply-mutation-hardening.yml
+
+      - name: Commit tested hardening
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: harden mutation validation and execution"
+          git push origin HEAD:fix/harden-mutation-workflow
