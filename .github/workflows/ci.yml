@@ -99,6 +99,16 @@ jobs:
             tests.mutation_policy_test \
             tests.mutation_gateway_test \
             > gate-test-output.txt 2>&1
+      - name: Run full tests and capture output
+        continue-on-error: true
+        run: |
+          python -m unittest discover --buffer -s tests -p '*_test.py' \
+            > full-test-output.txt 2>&1
+      - name: Run smoke test and capture output
+        continue-on-error: true
+        run: |
+          python -m unittest tests/smoke/smoke_test.py \
+            > smoke-test-output.txt 2>&1
       - name: Package diagnostics
         run: |
           tar -czf formatted-gate-files.tar.gz \
@@ -114,3 +124,5 @@ jobs:
           path: |
             formatted-gate-files.tar.gz
             gate-test-output.txt
+            full-test-output.txt
+            smoke-test-output.txt
