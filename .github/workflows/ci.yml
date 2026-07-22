@@ -91,13 +91,15 @@ jobs:
             ads_mcp/mutation_gateway.py \
             ads_mcp/tools/mutations.py \
             tests/mutation_policy_test.py \
-            tests/mutation_gateway_test.py
+            tests/mutation_gateway_test.py \
+            tests/mutation_gateway_regression_test.py
       - name: Run focused tests and capture output
         continue-on-error: true
         run: |
           python -m unittest \
             tests.mutation_policy_test \
             tests.mutation_gateway_test \
+            tests.mutation_gateway_regression_test \
             > gate-test-output.txt 2>&1
       - name: Run full tests and capture output
         continue-on-error: true
@@ -109,6 +111,21 @@ jobs:
         run: |
           python -m unittest tests/smoke/smoke_test.py \
             > smoke-test-output.txt 2>&1
+      - name: Generate current tools golden
+        run: |
+          python - <<'PY'
+          import json
+          from tests.smoke import smoke_utils
+
+          result = smoke_utils.get_tools_list()
+          result.get("tools", []).sort(key=lambda item: item.get("name", ""))
+          with open("generated_golden_tools_list.json", "w") as handle:
+              json.dump(result, handle, indent=2, sort_keys=True)
+              handle.write("\n")
+          PY
+      - name: Capture repository formatting status
+        continue-on-error: true
+        run: black --check --diff -l 80 . > black-output.txt 2>&1
       - name: Package diagnostics
         run: |
           tar -czf formatted-gate-files.tar.gz \
@@ -116,7 +133,8 @@ jobs:
             ads_mcp/mutation_gateway.py \
             ads_mcp/tools/mutations.py \
             tests/mutation_policy_test.py \
-            tests/mutation_gateway_test.py
+            tests/mutation_gateway_test.py \
+            tests/mutation_gateway_regression_test.py
       - name: Upload diagnostics
         uses: actions/upload-artifact@v4
         with:
@@ -126,3 +144,5 @@ jobs:
             gate-test-output.txt
             full-test-output.txt
             smoke-test-output.txt
+            generated_golden_tools_list.json
+            black-output.txt
