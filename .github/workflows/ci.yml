@@ -1,136 +1,73 @@
-name: Apply and verify gate consistency fix
+name: CI
 
 on:
   pull_request:
     branches: [ main ]
-
-permissions:
-  contents: write
+  push:
+    branches: [ main ]
 
 jobs:
-  apply-test-and-commit:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+  lint:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out source branch
-        uses: actions/checkout@v4
-        with:
-          ref: fix/unify-mutation-gates
-          fetch-depth: 0
-
+      - uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-          cache: pip
-
-      - name: Install project and validation tools
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e . black
+          pip install black nox
+      - name: Run lint
+        run: nox -s lint
 
-      - name: Apply compatibility and protobuf normalization fixes
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
         run: |
-          python - <<'PY'
-          from pathlib import Path
+          python -m pip install --upgrade pip
+          pip install nox
+      - name: Run tests
+        run: nox -s tests-${{ matrix.python-version }}
 
-          def replace_once(path: str, old: str, new: str) -> None:
-              target = Path(path)
-              content = target.read_text()
-              count = content.count(old)
-              if count != 1:
-                  raise SystemExit(
-                      f"Expected one match in {path}, found {count}: {old!r}"
-                  )
-              target.write_text(content.replace(old, new, 1))
-
-          replace_once(
-              "ads_mcp/utils.py",
-              '''    """Normalizes nested protobuf JSON and generic connector values."""
-              if isinstance(value, (Enum, proto.Enum)):
-          ''',
-              '''    """Normalizes nested protobuf JSON and generic connector values."""
-              if isinstance(value, (proto.Message, PbMessage)):
-                  return _protobuf_message_to_dict(value)
-              if isinstance(value, (Enum, proto.Enum)):
-          ''',
-          )
-          replace_once(
-              "tests/mutation_engine_test.py",
-              'with self.assertRaisesRegex(ToolError, "partial-failure"):',
-              'with self.assertRaisesRegex(\n'
-              '                ToolError, "PARTIAL_FAILURE_GATE_DISABLED"\n'
-              '            ):',
-          )
-          replace_once(
-              "tests/mutation_gateway_regression_test.py",
-              '"Confirmation token has already been used."',
-              '"Confirmation token already used."',
-          )
-          PY
-
-      - name: Refresh the smoke-test tool contract
+  smoke-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
         run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          from tests.smoke import smoke_utils
-
-          result = smoke_utils.get_tools_list()
-          result.get("tools", []).sort(key=lambda item: item.get("name", ""))
-          path = Path("tests/smoke/golden_tools_list.json")
-          path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-          PY
-
-      - name: Format the repository
-        run: black -l 80 .
-
-      - name: Verify formatting
-        run: black --check -l 80 .
-
-      - name: Verify centralized gate reads
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          violations = []
-          for path in Path("ads_mcp").rglob("*.py"):
-              if path.name == "mutation_policy.py":
-                  continue
-              text = path.read_text()
-              if 'os.environ.get("GOOGLE_ADS_ALLOW_' in text:
-                  violations.append(str(path))
-          if violations:
-              raise SystemExit(
-                  "Duplicate mutation gate environment reads: "
-                  + ", ".join(violations)
-              )
-          PY
-
-      - name: Compile sources
-        run: python -m compileall -q ads_mcp tests
-
-      - name: Run focused mutation tests
-        run: |
-          python -m unittest \
-            tests.mutation_policy_test \
-            tests.mutation_gateway_test \
-            tests.mutation_gateway_regression_test \
-            tests.mutation_engine_test \
-            tests.mutate_request_test
-
-      - name: Run full unit suite
-        run: python -m unittest discover --buffer -s tests -p '*_test.py'
-
+          python -m pip install --upgrade pip
+          pip install nox .
       - name: Run smoke tests
-        run: python -m unittest tests/smoke/smoke_test.py
+        run: nox -s smoke_tests
 
-      - name: Commit tested source changes
+  llm-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
-          git add ads_mcp tests horizon_server.py
-          git diff --cached --quiet && exit 0
-          git commit -m "fix: finalize unified mutation gate policy"
-          git push origin HEAD:fix/unify-mutation-gates
+          python -m pip install --upgrade pip
+          pip install nox . google-genai
+      - name: Run LLM tests
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: nox -s llm_tests
