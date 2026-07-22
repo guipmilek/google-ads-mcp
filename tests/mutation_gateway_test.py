@@ -101,13 +101,17 @@ class TestMutationGateway(unittest.TestCase):
         }
 
     def test_enable_is_blocked_before_engine_when_gate_is_false(self):
-        with self._environment(), patch.object(
-            mutation_gateway,
-            "_canonical_context",
-            return_value=self._canonical_context(),
-        ), patch.object(
-            mutation_gateway.mutation_engine, "_run_mutations"
-        ) as run_mutations:
+        with (
+            self._environment(),
+            patch.object(
+                mutation_gateway,
+                "_canonical_context",
+                return_value=self._canonical_context(),
+            ),
+            patch.object(
+                mutation_gateway.mutation_engine, "_run_mutations"
+            ) as run_mutations,
+        ):
             with self.assertRaises(ToolError) as raised:
                 mutation_gateway.batch_mutate(
                     self.CUSTOMER_ID,
@@ -121,15 +125,19 @@ class TestMutationGateway(unittest.TestCase):
         self.assertEqual(payload["required_gate"], "GOOGLE_ADS_ALLOW_ENABLE")
 
     def test_two_enable_operations_remain_one_atomic_engine_call(self):
-        with self._environment(GOOGLE_ADS_ALLOW_ENABLE="true"), patch.object(
-            mutation_gateway,
-            "_canonical_context",
-            return_value=self._canonical_context(),
-        ), patch.object(
-            mutation_gateway.mutation_engine,
-            "_run_mutations",
-            return_value=self._validation_response(),
-        ) as validate_call:
+        with (
+            self._environment(GOOGLE_ADS_ALLOW_ENABLE="true"),
+            patch.object(
+                mutation_gateway,
+                "_canonical_context",
+                return_value=self._canonical_context(),
+            ),
+            patch.object(
+                mutation_gateway.mutation_engine,
+                "_run_mutations",
+                return_value=self._validation_response(),
+            ) as validate_call,
+        ):
             validation = mutation_gateway.batch_mutate(
                 self.CUSTOMER_ID,
                 self.OPERATIONS,
@@ -163,15 +171,19 @@ class TestMutationGateway(unittest.TestCase):
                 config=mutation_gateway.MutationSafetyConfig.from_environment(),
                 endpoint="mutations_batch_mutate",
             )
-        with self._environment(GOOGLE_ADS_ALLOW_ENABLE="true"), patch.object(
-            mutation_gateway,
-            "_canonical_context",
-            return_value=self._canonical_context(),
-        ), patch.object(
-            mutation_gateway.mutation_engine,
-            "_run_mutations",
-            return_value=self._execution_response(),
-        ) as execute_call:
+        with (
+            self._environment(GOOGLE_ADS_ALLOW_ENABLE="true"),
+            patch.object(
+                mutation_gateway,
+                "_canonical_context",
+                return_value=self._canonical_context(),
+            ),
+            patch.object(
+                mutation_gateway.mutation_engine,
+                "_run_mutations",
+                return_value=self._execution_response(),
+            ) as execute_call,
+        ):
             result = mutation_gateway.batch_mutate(
                 self.CUSTOMER_ID,
                 self.OPERATIONS,
@@ -190,14 +202,18 @@ class TestMutationGateway(unittest.TestCase):
         self.assertEqual(len(execute_call.call_args.args[1]), 2)
 
     def test_policy_drift_blocks_before_engine(self):
-        with self._environment(GOOGLE_ADS_ALLOW_ENABLE="true"), patch.object(
-            mutation_gateway,
-            "_canonical_context",
-            return_value=self._canonical_context(),
-        ), patch.object(
-            mutation_gateway.mutation_engine,
-            "_run_mutations",
-            return_value=self._validation_response(),
+        with (
+            self._environment(GOOGLE_ADS_ALLOW_ENABLE="true"),
+            patch.object(
+                mutation_gateway,
+                "_canonical_context",
+                return_value=self._canonical_context(),
+            ),
+            patch.object(
+                mutation_gateway.mutation_engine,
+                "_run_mutations",
+                return_value=self._validation_response(),
+            ),
         ):
             validation = mutation_gateway.batch_mutate(
                 self.CUSTOMER_ID,
@@ -217,13 +233,17 @@ class TestMutationGateway(unittest.TestCase):
             self.OPERATION_HASH,
             changed_classification,
         )
-        with self._environment(GOOGLE_ADS_ALLOW_ENABLE="true"), patch.object(
-            mutation_gateway,
-            "_canonical_context",
-            return_value=changed_context,
-        ), patch.object(
-            mutation_gateway.mutation_engine, "_run_mutations"
-        ) as run_mutations:
+        with (
+            self._environment(GOOGLE_ADS_ALLOW_ENABLE="true"),
+            patch.object(
+                mutation_gateway,
+                "_canonical_context",
+                return_value=changed_context,
+            ),
+            patch.object(
+                mutation_gateway.mutation_engine, "_run_mutations"
+            ) as run_mutations,
+        ):
             with self.assertRaises(ToolError) as raised:
                 mutation_gateway.batch_mutate(
                     self.CUSTOMER_ID,
@@ -234,7 +254,9 @@ class TestMutationGateway(unittest.TestCase):
         run_mutations.assert_not_called()
         payload = json.loads(str(raised.exception))
         self.assertEqual(payload["status"], "BLOCKED_BY_STATE_OR_POLICY_DRIFT")
-        self.assertEqual(payload["reason_code"], "POLICY_OR_CLASSIFICATION_DRIFT")
+        self.assertEqual(
+            payload["reason_code"], "POLICY_OR_CLASSIFICATION_DRIFT"
+        )
 
     def test_read_only_status_exposes_sanitized_runtime_without_api_call(self):
         with self._environment(GOOGLE_ADS_ALLOW_ENABLE="true"):
