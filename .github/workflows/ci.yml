@@ -71,3 +71,46 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: nox -s llm_tests
+
+  gate-diagnostics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install black .
+      - name: Format gate files
+        run: |
+          black -l 80 \
+            ads_mcp/mutation_policy.py \
+            ads_mcp/mutation_gateway.py \
+            ads_mcp/tools/mutations.py \
+            tests/mutation_policy_test.py \
+            tests/mutation_gateway_test.py
+      - name: Run focused tests and capture output
+        continue-on-error: true
+        run: |
+          python -m unittest \
+            tests.mutation_policy_test \
+            tests.mutation_gateway_test \
+            > gate-test-output.txt 2>&1
+      - name: Package diagnostics
+        run: |
+          tar -czf formatted-gate-files.tar.gz \
+            ads_mcp/mutation_policy.py \
+            ads_mcp/mutation_gateway.py \
+            ads_mcp/tools/mutations.py \
+            tests/mutation_policy_test.py \
+            tests/mutation_gateway_test.py
+      - name: Upload diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-diagnostics
+          path: |
+            formatted-gate-files.tar.gz
+            gate-test-output.txt
