@@ -234,9 +234,7 @@ class TestMutateRequest(unittest.TestCase):
                 "action": "create",
                 "resource": "Campaign",
                 "data": {
-                    "resource_name": (
-                        "customers/8448275903/campaigns/-1"
-                    )
+                    "resource_name": ("customers/8448275903/campaigns/-1")
                 },
             },
         )
@@ -277,10 +275,13 @@ class TestMutateRequest(unittest.TestCase):
         mock_get_client.return_value = client
         mock_prepare_operation.return_value = self._prepared_operation()
 
-        with patch(
-            "ads_mcp.mutation_engine._validate_live_execution",
-            return_value={"registered_before_api_call": True},
-        ), self.assertRaises(ToolError) as context:
+        with (
+            patch(
+                "ads_mcp.mutation_engine._validate_live_execution",
+                return_value={"registered_before_api_call": True},
+            ),
+            self.assertRaises(ToolError) as context,
+        ):
             mutation_engine._run_mutations(
                 "8448275903",
                 [

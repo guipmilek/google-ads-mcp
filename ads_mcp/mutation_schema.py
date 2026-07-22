@@ -117,8 +117,7 @@ def _field_behaviors(field: FieldDescriptor) -> List[str]:
             field_behavior_pb2.field_behavior
         ]
         return [
-            field_behavior_pb2.FieldBehavior.Name(value)
-            for value in values
+            field_behavior_pb2.FieldBehavior.Name(value) for value in values
         ]
     except (KeyError, TypeError, ValueError):
         return []
@@ -262,18 +261,12 @@ def _validate_update_mask_paths(
         for index, segment in enumerate(segments):
             field = current_descriptor.fields_by_name.get(segment)
             if field is None:
-                raise ToolError(
-                    f"Unknown update_mask field path '{path}'."
-                )
+                raise ToolError(f"Unknown update_mask field path '{path}'.")
             permissions = _field_permissions(field)
             if permissions["output_only"]:
-                raise ToolError(
-                    f"update_mask field '{path}' is output-only."
-                )
+                raise ToolError(f"update_mask field '{path}' is output-only.")
             if permissions["immutable"]:
-                raise ToolError(
-                    f"update_mask field '{path}' is immutable."
-                )
+                raise ToolError(f"update_mask field '{path}' is immutable.")
 
             is_last = index == len(segments) - 1
             if is_last:

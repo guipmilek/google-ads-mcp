@@ -109,9 +109,7 @@ def _prepare_operation(
                 prepared_data, descriptor
             )
         else:
-            target_name = str(
-                prepared_data.get("resource_name", "")
-            ).strip()
+            target_name = str(prepared_data.get("resource_name", "")).strip()
             if not target_name:
                 raise ToolError(
                     "data.resource_name is required for update operations."
@@ -148,9 +146,7 @@ def _prepare_operation(
                 raise ToolError(
                     "update_mask must be a list of field paths for updates."
                 )
-            update_mask = _normalize_update_mask(
-                raw_mask, wrapper_field.name
-            )
+            update_mask = _normalize_update_mask(raw_mask, wrapper_field.name)
             _validate_update_mask_paths(descriptor, update_mask)
             operation._pb.update_mask.paths.extend(update_mask)
             prepared["update_mask"] = update_mask
@@ -362,9 +358,7 @@ def _run_mutations(
         prepared_operations,
         partial_failure,
     )
-    if partial_failure and _contains_temporary_resource_id(
-        prepared_operations
-    ):
+    if partial_failure and _contains_temporary_resource_id(prepared_operations):
         raise ToolError(
             "partial_failure=true cannot be used with temporary negative "
             "resource IDs or dependent operations."
@@ -441,15 +435,9 @@ def _run_mutations(
     if validation_receipt:
         receipt_summary = {
             "expires_at": confirmation_expires_at,
-            "cross_instance_valid": validation_receipt[
-                "cross_instance_valid"
-            ],
-            "replay_protection": validation_receipt[
-                "replay_protection"
-            ],
-            "globally_single_use": validation_receipt[
-                "globally_single_use"
-            ],
+            "cross_instance_valid": validation_receipt["cross_instance_valid"],
+            "replay_protection": validation_receipt["replay_protection"],
+            "globally_single_use": validation_receipt["globally_single_use"],
         }
 
     return {
@@ -460,9 +448,7 @@ def _run_mutations(
         "validation_status": validation_status,
         "execution_attempted": not validate_only,
         "executed": (
-            False
-            if validate_only
-            else (None if partial_error else True)
+            False if validate_only else (None if partial_error else True)
         ),
         "execution_status": execution_status,
         "confirmation_verified": confirmation_receipt is not None,

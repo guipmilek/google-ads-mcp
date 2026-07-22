@@ -188,9 +188,7 @@ def _validate_resource_references(
     """Rejects nested references to a different Google Ads customer."""
     if isinstance(value, dict):
         for key, nested in value.items():
-            _validate_resource_references(
-                customer_id, nested, f"{path}.{key}"
-            )
+            _validate_resource_references(customer_id, nested, f"{path}.{key}")
         return
     if isinstance(value, list):
         for index, nested in enumerate(value):
@@ -209,14 +207,12 @@ def _validate_resource_references(
 def _contains_temporary_resource_id(value: Any) -> bool:
     if isinstance(value, dict):
         return any(
-            _contains_temporary_resource_id(item)
-            for item in value.values()
+            _contains_temporary_resource_id(item) for item in value.values()
         )
     if isinstance(value, list):
         return any(_contains_temporary_resource_id(item) for item in value)
     return (
-        isinstance(value, str)
-        and re.search(r"/-\d+(?:$|/)", value) is not None
+        isinstance(value, str) and re.search(r"/-\d+(?:$|/)", value) is not None
     )
 
 
@@ -280,9 +276,7 @@ def _validate_budget_limit(resource_name: str, data: Dict[str, Any]) -> None:
 
     if "amount_micros" in data:
         amount = _positive_micros(data["amount_micros"], "amount_micros")
-        limit = _configured_positive_limit(
-            "GOOGLE_ADS_MAX_DAILY_BUDGET_MICROS"
-        )
+        limit = _configured_positive_limit("GOOGLE_ADS_MAX_DAILY_BUDGET_MICROS")
         if limit is not None and amount > limit:
             raise ToolError(
                 f"Campaign budget {amount} micros exceeds the configured "
@@ -605,9 +599,7 @@ def _validate_live_execution(
     confirmation: str | None,
     partial_failure: bool = False,
 ) -> Dict[str, Any]:
-    _validate_live_execution_policy(
-        customer_id, operations, partial_failure
-    )
+    _validate_live_execution_policy(customer_id, operations, partial_failure)
     return _consume_validation_receipt(
         customer_id,
         operations,

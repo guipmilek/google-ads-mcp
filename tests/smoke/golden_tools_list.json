@@ -68,6 +68,348 @@
         }
       },
       "annotations": {
+        "readOnlyHint": false
+      },
+      "description": "Runs one atomic mixed-resource batch through the centralized policy.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "operations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "partial_failure": {
+            "default": false,
+            "type": "boolean"
+          },
+          "validate_only": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "customer_id",
+          "operations"
+        ],
+        "type": "object"
+      },
+      "name": "mutations_batch_mutate",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false
+      },
+      "description": "Creates one resource through the centralized mutation policy.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "data": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "resource": {
+            "type": "string"
+          },
+          "validate_only": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "customer_id",
+          "resource",
+          "data"
+        ],
+        "type": "object"
+      },
+      "name": "mutations_create_resource",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Returns sanitized gate/runtime state and optionally simulates a payload.\n\nThis tool never calls Google Ads and never issues an executable confirmation.\nWhen ``customer_id`` and ``operations`` are supplied, it canonicalizes the\noperations locally and reports the exact gate decision that the endpoint\nwould make.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "endpoint": {
+            "default": "mutations_batch_mutate",
+            "type": "string"
+          },
+          "operations": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "partial_failure": {
+            "default": false,
+            "type": "boolean"
+          },
+          "validate_only": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "name": "mutations_get_mutation_safety_status",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Returns protobuf fields and mutability metadata for a resource.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "max_depth": {
+            "default": 1,
+            "type": "integer"
+          },
+          "resource": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource"
+        ],
+        "type": "object"
+      },
+      "name": "mutations_get_mutation_schema",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Lists resources and CRUD actions supported by GoogleAdsService.Mutate.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "mutations_list_mutable_resources",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false
+      },
+      "description": "Removes one resource through the centralized mutation policy.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "resource": {
+            "type": "string"
+          },
+          "resource_name": {
+            "type": "string"
+          },
+          "validate_only": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "customer_id",
+          "resource",
+          "resource_name"
+        ],
+        "type": "object"
+      },
+      "name": "mutations_remove_resource",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false
+      },
+      "description": "Updates one resource through the centralized mutation policy.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "data": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "resource": {
+            "type": "string"
+          },
+          "update_mask": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "validate_only": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "customer_id",
+          "resource",
+          "data",
+          "update_mask"
+        ],
+        "type": "object"
+      },
+      "name": "mutations_update_resource",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
         "readOnlyHint": true
       },
       "description": "Fetches data from the Google Ads API using the search method",

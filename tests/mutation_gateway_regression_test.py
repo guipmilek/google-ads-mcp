@@ -98,14 +98,18 @@ class TestMutationGatewayRegressions(unittest.TestCase):
         }
 
     def _outer_confirmation(self):
-        with self._environment(GOOGLE_ADS_ALLOW_ENABLE="true"), patch.object(
-            mutation_gateway,
-            "_canonical_context",
-            return_value=self._enable_context(),
-        ), patch.object(
-            mutation_gateway.mutation_engine,
-            "_run_mutations",
-            return_value=self._validation_response(),
+        with (
+            self._environment(GOOGLE_ADS_ALLOW_ENABLE="true"),
+            patch.object(
+                mutation_gateway,
+                "_canonical_context",
+                return_value=self._enable_context(),
+            ),
+            patch.object(
+                mutation_gateway.mutation_engine,
+                "_run_mutations",
+                return_value=self._validation_response(),
+            ),
         ):
             response = mutation_gateway.batch_mutate(
                 self.CUSTOMER_ID,
@@ -129,11 +133,15 @@ class TestMutationGatewayRegressions(unittest.TestCase):
             self.OPERATION_HASH,
             classify_operations(operations, False),
         )
-        with self._environment(), patch.object(
-            mutation_gateway, "_canonical_context", return_value=context
-        ), patch.object(
-            mutation_gateway.mutation_engine, "_run_mutations"
-        ) as run_mutations:
+        with (
+            self._environment(),
+            patch.object(
+                mutation_gateway, "_canonical_context", return_value=context
+            ),
+            patch.object(
+                mutation_gateway.mutation_engine, "_run_mutations"
+            ) as run_mutations,
+        ):
             batch = self._assert_reason(
                 lambda: mutation_gateway.batch_mutate(
                     self.CUSTOMER_ID,
@@ -157,7 +165,9 @@ class TestMutationGatewayRegressions(unittest.TestCase):
         self.assertEqual(batch["required_gate"], specific["required_gate"])
         self.assertEqual(batch["safety_config"], specific["safety_config"])
 
-    def test_partial_failure_and_sensitive_gates_are_simulated_fail_closed(self):
+    def test_partial_failure_and_sensitive_gates_are_simulated_fail_closed(
+        self,
+    ):
         partial = mutation_gateway.get_mutation_safety_status(
             operations=[
                 {
@@ -191,13 +201,17 @@ class TestMutationGatewayRegressions(unittest.TestCase):
         )
 
     def test_invalid_gate_value_never_enables_execution(self):
-        with self._environment(GOOGLE_ADS_ALLOW_ENABLE="sometimes"), patch.object(
-            mutation_gateway,
-            "_canonical_context",
-            return_value=self._enable_context(),
-        ), patch.object(
-            mutation_gateway.mutation_engine, "_run_mutations"
-        ) as run_mutations:
+        with (
+            self._environment(GOOGLE_ADS_ALLOW_ENABLE="sometimes"),
+            patch.object(
+                mutation_gateway,
+                "_canonical_context",
+                return_value=self._enable_context(),
+            ),
+            patch.object(
+                mutation_gateway.mutation_engine, "_run_mutations"
+            ) as run_mutations,
+        ):
             payload = self._assert_reason(
                 lambda: mutation_gateway.batch_mutate(
                     self.CUSTOMER_ID,
@@ -274,15 +288,20 @@ class TestMutationGatewayRegressions(unittest.TestCase):
         payload = json.loads(
             mutation_safety._b64url_decode(payload_part).decode("utf-8")
         )
-        with self._environment(GOOGLE_ADS_ALLOW_ENABLE="true"), patch.object(
-            mutation_gateway,
-            "_canonical_context",
-            return_value=self._enable_context(),
-        ), patch.object(
-            mutation_gateway.time, "time", return_value=payload["exp"]
-        ), patch.object(
-            mutation_gateway.mutation_engine, "_run_mutations"
-        ) as run_mutations:
+        with (
+            self._environment(GOOGLE_ADS_ALLOW_ENABLE="true"),
+            patch.object(
+                mutation_gateway,
+                "_canonical_context",
+                return_value=self._enable_context(),
+            ),
+            patch.object(
+                mutation_gateway.time, "time", return_value=payload["exp"]
+            ),
+            patch.object(
+                mutation_gateway.mutation_engine, "_run_mutations"
+            ) as run_mutations,
+        ):
             self._assert_reason(
                 lambda: mutation_gateway.batch_mutate(
                     self.CUSTOMER_ID,
@@ -296,14 +315,18 @@ class TestMutationGatewayRegressions(unittest.TestCase):
 
     def test_replay_reason_is_sanitized(self):
         confirmation = self._outer_confirmation()
-        with self._environment(GOOGLE_ADS_ALLOW_ENABLE="true"), patch.object(
-            mutation_gateway,
-            "_canonical_context",
-            return_value=self._enable_context(),
-        ), patch.object(
-            mutation_gateway.mutation_engine,
-            "_run_mutations",
-            side_effect=ToolError("Confirmation token has already been used."),
+        with (
+            self._environment(GOOGLE_ADS_ALLOW_ENABLE="true"),
+            patch.object(
+                mutation_gateway,
+                "_canonical_context",
+                return_value=self._enable_context(),
+            ),
+            patch.object(
+                mutation_gateway.mutation_engine,
+                "_run_mutations",
+                side_effect=ToolError("Confirmation token already used."),
+            ),
         ):
             self._assert_reason(
                 lambda: mutation_gateway.batch_mutate(

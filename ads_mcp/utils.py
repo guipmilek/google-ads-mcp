@@ -120,10 +120,10 @@ def get_googleads_client():
     return _get_googleads_client()
 
 
-def _normalize_protobuf_json(
-    value: Any, field_name: str | None = None
-) -> Any:
+def _normalize_protobuf_json(value: Any, field_name: str | None = None) -> Any:
     """Normalizes nested protobuf JSON and generic connector values."""
+    if isinstance(value, (proto.Message, PbMessage)):
+        return _protobuf_message_to_dict(value)
     if isinstance(value, (Enum, proto.Enum)):
         return value.name
     if isinstance(value, Mapping):
@@ -166,9 +166,8 @@ def format_output_value(value: Any) -> Any:
         return _protobuf_message_to_dict(value)
     if isinstance(value, (Enum, proto.Enum, Mapping, set, list, tuple)):
         return _normalize_protobuf_json(value)
-    if (
-        hasattr(value, "__iter__")
-        and not isinstance(value, (str, bytes, bytearray))
+    if hasattr(value, "__iter__") and not isinstance(
+        value, (str, bytes, bytearray)
     ):
         return [format_output_value(item) for item in value]
     return value
