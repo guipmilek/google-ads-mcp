@@ -33,7 +33,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e .
-          python -m pip install black nox pyfakefs "coverage==6.5.0"
+          python -m pip install black nox pyfakefs "coverage==6.5.0" google-genai
 
       - name: Apply endpoint implementation and tests
         run: python .github/scripts/apply_ad_group_ad_status_endpoint.py
