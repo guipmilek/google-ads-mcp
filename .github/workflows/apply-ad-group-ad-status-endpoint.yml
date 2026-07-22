@@ -6,6 +6,9 @@ on:
       - feat/ad-group-ad-status-endpoint
     paths:
       - .github/workflows/apply-ad-group-ad-status-endpoint.yml
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
