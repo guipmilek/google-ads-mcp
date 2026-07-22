@@ -19,9 +19,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Literal
 
 from fastmcp.exceptions import ToolError
 
@@ -37,8 +38,15 @@ from ads_mcp.mutation_policy import (
     runtime_metadata,
 )
 
-_POLICY_ENVELOPE_VERSION = 1
+_POLICY_ENVELOPE_VERSION = 2
 _POLICY_ENVELOPE_KIND = "google-ads-mutation-policy-envelope"
+_DEFAULT_TOOL_CONTRACT_VERSION = 1
+_AD_GROUP_AD_STATUS_TOOL_CONTRACT_VERSION = 1
+_AD_GROUP_AD_STATUS_LIMIT = 10
+_AD_GROUP_AD_RESOURCE_NAME_PATTERN = re.compile(
+    r"^customers/(?P<customer_id>[0-9]+)/adGroupAds/"
+    r"(?P<ad_group_id>[0-9]+)~(?P<ad_id>[0-9]+)$"
+)
 
 
 def _centralized_live_execution_policy(
@@ -188,6 +196,8 @@ def _issue_policy_envelope(
     classification: MutationClassification,
     inner_confirmation: str,
     policy_version: str,
+    endpoint: str,
+    tool_contract_version: int,
 ) -> str:
     prefix, inner_hash, inner_payload = mutation_safety._decode_confirmation(
         inner_confirmation
@@ -203,6 +213,8 @@ def _issue_policy_envelope(
         "v": _POLICY_ENVELOPE_VERSION,
         "kind": _POLICY_ENVELOPE_KIND,
         "policy_version": policy_version,
+        "endpoint": endpoint,
+        "tool_contract_version": tool_contract_version,
         "cid": customer_id,
         "hash": operation_hash,
         "verb": prefix,
@@ -233,6 +245,7 @@ def _verify_policy_envelope(
     classification: MutationClassification,
     config: MutationSafetyConfig,
     endpoint: str,
+    tool_contract_version: int = _DEFAULT_TOOL_CONTRACT_VERSION,
 ) -> str:
     if not confirmation:
         raise _structured_error(
@@ -300,6 +313,16 @@ def _verify_policy_envelope(
             and payload.get("kind") == _POLICY_ENVELOPE_KIND,
             "CONFIRMATION_VERSION_MISMATCH",
             "Confirmation envelope version is not supported.",
+        ),
+        (
+            payload.get("endpoint") == endpoint,
+            "CONFIRMATION_ENDPOINT_MISMATCH",
+            "Confirmation endpoint does not match the executing tool.",
+        ),
+        (
+            payload.get("tool_contract_version") == tool_contract_version,
+            "CONFIRMATION_CONTRACT_VERSION_MISMATCH",
+            "Confirmation tool contract version does not match.",
         ),
         (
             token_hash == operation_hash
@@ -409,11 +432,13 @@ def _enrich_response(
     classification: MutationClassification,
     decision: Any,
     correlation_id: str,
+    tool_contract_version: int,
 ) -> Dict[str, Any]:
     enriched = dict(response)
     enriched["security_policy"] = {
         "policy_version": config.policy_version,
         "endpoint": endpoint,
+        "tool_contract_version": tool_contract_version,
         "correlation_id": correlation_id,
         "config": config.public_dict(),
         "classification": classification.public_dict(),
@@ -432,6 +457,7 @@ def _invoke_mutation(
     validate_only: bool,
     partial_failure: bool,
     confirmation: str | None,
+    tool_contract_version: int = _DEFAULT_TOOL_CONTRACT_VERSION,
 ) -> Dict[str, Any]:
     (
         normalized_customer_id,
@@ -474,6 +500,7 @@ def _invoke_mutation(
             classification=classification,
             config=config,
             endpoint=endpoint,
+            tool_contract_version=tool_contract_version,
         )
 
     try:
@@ -523,6 +550,7 @@ def _invoke_mutation(
         classification=classification,
         decision=decision,
         correlation_id=correlation_id,
+        tool_contract_version=tool_contract_version,
     )
     if validate_only and response.get("required_confirmation"):
         enriched["required_confirmation"] = _issue_policy_envelope(
@@ -531,6 +559,8 @@ def _invoke_mutation(
             classification=classification,
             inner_confirmation=response["required_confirmation"],
             policy_version=config.policy_version,
+            endpoint=endpoint,
+            tool_contract_version=tool_contract_version,
         )
     return enriched
 
@@ -541,6 +571,7 @@ def get_mutation_safety_status(
     partial_failure: bool = False,
     validate_only: bool = False,
     endpoint: str = "mutations_batch_mutate",
+    tool_contract_version: int = _DEFAULT_TOOL_CONTRACT_VERSION,
 ) -> Dict[str, Any]:
     """Returns sanitized gate/runtime state and optionally simulates a payload.
 
@@ -555,6 +586,7 @@ def get_mutation_safety_status(
         "simulation_only": True,
         "api_call_performed": False,
         "confirmation_issued": False,
+        "tool_contract_version": tool_contract_version,
         "runtime": runtime_metadata(endpoint=endpoint),
         "safety_config": config.public_dict(),
     }
@@ -656,6 +688,82 @@ def remove_resource(
         validate_only=validate_only,
         partial_failure=False,
         confirmation=confirmation,
+    )
+
+
+def _build_ad_group_ad_status_operations(
+    customer_id: str,
+    resource_names: List[str],
+    status: Literal["ENABLED", "PAUSED"],
+) -> tuple[str, List[Dict[str, Any]]]:
+    """Validates the constrained tool contract and builds atomic operations."""
+    normalized_customer_id = mutation_safety._normalize_customer_id(customer_id)
+    if not isinstance(resource_names, list):
+        raise ToolError("resource_names must be a list.")
+    if not resource_names:
+        raise ToolError("At least one AdGroupAd resource_name is required.")
+    if len(resource_names) > _AD_GROUP_AD_STATUS_LIMIT:
+        raise ToolError(
+            "This tool accepts at most "
+            f"{_AD_GROUP_AD_STATUS_LIMIT} AdGroupAd resource names."
+        )
+    if len(set(resource_names)) != len(resource_names):
+        raise ToolError("Duplicate AdGroupAd resource names are not allowed.")
+    if not isinstance(status, str) or status not in {"ENABLED", "PAUSED"}:
+        raise ToolError("status must be exactly ENABLED or PAUSED.")
+
+    operations: list[Dict[str, Any]] = []
+    for resource_name in resource_names:
+        if not isinstance(resource_name, str):
+            raise ToolError("Every resource_name must be a string.")
+        match = _AD_GROUP_AD_RESOURCE_NAME_PATTERN.fullmatch(resource_name)
+        if match is None:
+            raise ToolError(
+                "Invalid AdGroupAd resource_name. Expected "
+                "customers/{customer_id}/adGroupAds/{ad_group_id}~{ad_id}."
+            )
+        if match.group("customer_id") != normalized_customer_id:
+            raise ToolError(
+                "AdGroupAd resource_name customer does not match customer_id."
+            )
+        operations.append(
+            {
+                "action": "update",
+                "resource": "AdGroupAd",
+                "data": {
+                    "resource_name": resource_name,
+                    "status": status,
+                },
+                "update_mask": ["status"],
+            }
+        )
+    return normalized_customer_id, operations
+
+
+def update_ad_group_ad_statuses(
+    customer_id: str,
+    resource_names: List[str],
+    status: Literal["ENABLED", "PAUSED"],
+    validate_only: bool = True,
+    confirmation: str | None = None,
+) -> Dict[str, Any]:
+    """Atomically updates only status for 1-10 AdGroupAd resources.
+
+    The tool always uses ``partial_failure=false`` and internally constructs an
+    update mask containing only ``status``. It cannot create or remove resources
+    and cannot update any other AdGroupAd field.
+    """
+    normalized_customer_id, operations = _build_ad_group_ad_status_operations(
+        customer_id, resource_names, status
+    )
+    return _invoke_mutation(
+        endpoint="mutations_update_ad_group_ad_statuses",
+        customer_id=normalized_customer_id,
+        operations=operations,
+        validate_only=validate_only,
+        partial_failure=False,
+        confirmation=confirmation,
+        tool_contract_version=_AD_GROUP_AD_STATUS_TOOL_CONTRACT_VERSION,
     )
 
 

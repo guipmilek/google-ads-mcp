@@ -191,7 +191,7 @@ class TestMutationPolicy(unittest.TestCase):
                 "required_gate": None,
                 "observed_gate": None,
                 "execution_mode": "VALIDATE_ONLY",
-                "policy_version": "mutation-safety-v4",
+                "policy_version": "mutation-safety-v5",
             },
         )
 
