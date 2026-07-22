@@ -39,30 +39,7 @@ jobs:
         run: python .github/scripts/apply_ad_group_ad_status_endpoint.py
 
       - name: Refresh MCP tool golden
-        run: |
-          set +e
-          python -m tests.smoke.generate_golden > /tmp/golden.log 2>&1
-          status=$?
-          cat /tmp/golden.log
-          echo "$status" > /tmp/golden.exit
-          exit 0
-
-      - name: Upload applicator diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ad-group-ad-endpoint-diagnostics
-          path: |
-            /tmp/golden.log
-            /tmp/golden.exit
-            ads_mcp/mutation_gateway.py
-            ads_mcp/mutation_policy.py
-            ads_mcp/tools/mutations.py
-            tests/ad_group_ad_status_endpoint_test.py
-          if-no-files-found: warn
-
-      - name: Require golden refresh success
-        run: test "$(cat /tmp/golden.exit)" = "0"
+        run: python -m tests.smoke.generate_golden
 
       - name: Format repository
         run: python -m black -l 80 .
@@ -75,11 +52,34 @@ jobs:
 
       - name: Run focused endpoint tests
         run: |
+          set +e
           python -m unittest \
             tests.ad_group_ad_status_endpoint_test \
             tests.mutation_gateway_test \
             tests.mutation_gateway_regression_test \
-            tests.mutation_policy_test
+            tests.mutation_policy_test \
+            > /tmp/focused-tests.log 2>&1
+          status=$?
+          cat /tmp/focused-tests.log
+          echo "$status" > /tmp/focused-tests.exit
+          exit 0
+
+      - name: Upload endpoint diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ad-group-ad-endpoint-diagnostics
+          path: |
+            /tmp/focused-tests.log
+            /tmp/focused-tests.exit
+            ads_mcp
+            tests
+            pyproject.toml
+            noxfile.py
+          if-no-files-found: error
+
+      - name: Require focused tests success
+        run: test "$(cat /tmp/focused-tests.exit)" = "0"
 
       - name: Run full unit suite
         run: |
