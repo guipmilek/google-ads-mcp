@@ -25,7 +25,7 @@ import socket
 import time
 from typing import Any, Dict, Iterable, List
 
-_POLICY_VERSION = "mutation-safety-v4"
+_POLICY_VERSION = "mutation-safety-v5"
 _PROCESS_STARTED_AT = time.time()
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES = frozenset({"", "0", "false", "no", "off"})

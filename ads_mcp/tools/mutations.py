@@ -32,6 +32,7 @@ _MUTATION_TOOLS = (
     mutation_gateway.create_resource,
     mutation_gateway.update_resource,
     mutation_gateway.remove_resource,
+    mutation_gateway.update_ad_group_ad_statuses,
     mutation_gateway.batch_mutate,
 )
 
