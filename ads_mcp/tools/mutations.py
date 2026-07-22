@@ -19,18 +19,20 @@ from fastmcp.tools import Tool
 from mcp.types import ToolAnnotations
 
 from ads_mcp import mutation_engine
+from ads_mcp import mutation_gateway
 
 mutations_mcp = FastMCP("mutations")
 
 _READ_TOOLS = (
     mutation_engine.list_mutable_resources,
     mutation_engine.get_mutation_schema,
+    mutation_gateway.get_mutation_safety_status,
 )
 _MUTATION_TOOLS = (
-    mutation_engine.create_resource,
-    mutation_engine.update_resource,
-    mutation_engine.remove_resource,
-    mutation_engine.batch_mutate,
+    mutation_gateway.create_resource,
+    mutation_gateway.update_resource,
+    mutation_gateway.remove_resource,
+    mutation_gateway.batch_mutate,
 )
 
 for function in _READ_TOOLS:

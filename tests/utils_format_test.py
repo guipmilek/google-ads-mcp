@@ -38,9 +38,7 @@ class TestFormatOutputValue(unittest.TestCase):
 
         result = utils.format_output_value(value)
 
-        self.assertEqual(
-            result["campaign_budget"]["amount_micros"], 20000000
-        )
+        self.assertEqual(result["campaign_budget"]["amount_micros"], 20000000)
         self.assertEqual(result["campaign_budget"]["id"], "2")
         self.assertEqual(result["campaign_budget"]["type"], "STANDARD")
         self.assertNotIn("type_", result["campaign_budget"])
@@ -58,9 +56,7 @@ class TestFormatOutputValue(unittest.TestCase):
 
     def test_nested_enum_uses_name(self):
         self.assertEqual(
-            utils.format_output_value(
-                {"status": ExampleEnum.ENABLED}
-            ),
+            utils.format_output_value({"status": ExampleEnum.ENABLED}),
             {"status": "ENABLED"},
         )
 

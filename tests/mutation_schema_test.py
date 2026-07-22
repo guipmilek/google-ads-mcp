@@ -73,10 +73,13 @@ class TestMutationSchema(unittest.TestCase):
         descriptor = FakeDescriptor(
             [FakeField("id", behaviors=("OUTPUT_ONLY",))]
         )
-        with patch(
-            "ads_mcp.mutation_schema._field_permissions",
-            side_effect=self._permissions,
-        ), self.assertRaisesRegex(ToolError, "output-only"):
+        with (
+            patch(
+                "ads_mcp.mutation_schema._field_permissions",
+                side_effect=self._permissions,
+            ),
+            self.assertRaisesRegex(ToolError, "output-only"),
+        ):
             mutation_schema._validate_mutation_data(
                 descriptor, {"id": "123"}, "create"
             )
@@ -88,10 +91,13 @@ class TestMutationSchema(unittest.TestCase):
                 FakeField("campaign", behaviors=("IMMUTABLE",)),
             ]
         )
-        with patch(
-            "ads_mcp.mutation_schema._field_permissions",
-            side_effect=self._permissions,
-        ), self.assertRaisesRegex(ToolError, "immutable"):
+        with (
+            patch(
+                "ads_mcp.mutation_schema._field_permissions",
+                side_effect=self._permissions,
+            ),
+            self.assertRaisesRegex(ToolError, "immutable"),
+        ):
             mutation_schema._validate_mutation_data(
                 descriptor,
                 {"resource_name": "customers/1/items/2", "campaign": "x"},
@@ -119,20 +125,26 @@ class TestMutationSchema(unittest.TestCase):
         descriptor = FakeDescriptor(
             [FakeField("id", behaviors=("OUTPUT_ONLY",))]
         )
-        with patch(
-            "ads_mcp.mutation_schema._field_permissions",
-            side_effect=self._permissions,
-        ), self.assertRaisesRegex(ToolError, "output-only"):
+        with (
+            patch(
+                "ads_mcp.mutation_schema._field_permissions",
+                side_effect=self._permissions,
+            ),
+            self.assertRaisesRegex(ToolError, "output-only"),
+        ):
             mutation_schema._validate_update_mask_paths(descriptor, ["id"])
 
     def test_update_mask_rejects_immutable_field(self):
         descriptor = FakeDescriptor(
             [FakeField("campaign", behaviors=("IMMUTABLE",))]
         )
-        with patch(
-            "ads_mcp.mutation_schema._field_permissions",
-            side_effect=self._permissions,
-        ), self.assertRaisesRegex(ToolError, "immutable"):
+        with (
+            patch(
+                "ads_mcp.mutation_schema._field_permissions",
+                side_effect=self._permissions,
+            ),
+            self.assertRaisesRegex(ToolError, "immutable"),
+        ):
             mutation_schema._validate_update_mask_paths(
                 descriptor, ["campaign"]
             )
@@ -140,9 +152,7 @@ class TestMutationSchema(unittest.TestCase):
     def test_update_mask_rejects_unknown_field(self):
         descriptor = FakeDescriptor([FakeField("name")])
         with self.assertRaisesRegex(ToolError, "Unknown"):
-            mutation_schema._validate_update_mask_paths(
-                descriptor, ["missing"]
-            )
+            mutation_schema._validate_update_mask_paths(descriptor, ["missing"])
 
 
 if __name__ == "__main__":

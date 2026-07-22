@@ -56,9 +56,7 @@ class TestMutationEngine(unittest.TestCase):
                 "update_mask": ["status"],
             }
         ]
-        first = mutation_engine._operation_hash(
-            "8448275903", operations, False
-        )
+        first = mutation_engine._operation_hash("8448275903", operations, False)
         second = mutation_engine._operation_hash(
             "8448275903", operations, False
         )
@@ -159,21 +157,13 @@ class TestMutationEngine(unittest.TestCase):
         with self.assertRaisesRegex(ToolError, "another customer_id"):
             mutation_engine._validate_resource_references(
                 "8448275903",
-                {
-                    "campaign_budget": (
-                        "customers/1111111111/campaignBudgets/2"
-                    )
-                },
+                {"campaign_budget": ("customers/1111111111/campaignBudgets/2")},
             )
 
     def test_same_customer_nested_resource_reference_is_allowed(self):
         mutation_engine._validate_resource_references(
             "8448275903",
-            {
-                "campaign_budget": (
-                    "customers/8448275903/campaignBudgets/-1"
-                )
-            },
+            {"campaign_budget": ("customers/8448275903/campaignBudgets/-1")},
         )
 
     def test_confirmation_secret_and_ttl_are_validated(self):
@@ -204,9 +194,12 @@ class TestMutationEngine(unittest.TestCase):
         request_hash = mutation_engine._operation_hash(
             "8448275903", operations, False
         )
-        with self._confirmation_env(), patch(
-            "ads_mcp.mutation_safety.secrets.token_urlsafe",
-            return_value="receipt-token",
+        with (
+            self._confirmation_env(),
+            patch(
+                "ads_mcp.mutation_safety.secrets.token_urlsafe",
+                return_value="receipt-token",
+            ),
         ):
             receipt = mutation_engine._issue_validation_receipt(
                 "8448275903", operations, request_hash, False
@@ -299,7 +292,9 @@ class TestMutationEngine(unittest.TestCase):
             receipt = mutation_engine._issue_validation_receipt(
                 "8448275903", operations, request_hash, True
             )
-            with self.assertRaisesRegex(ToolError, "partial-failure"):
+            with self.assertRaisesRegex(
+                ToolError, "PARTIAL_FAILURE_GATE_DISABLED"
+            ):
                 mutation_engine._validate_live_execution(
                     "8448275903",
                     operations,
