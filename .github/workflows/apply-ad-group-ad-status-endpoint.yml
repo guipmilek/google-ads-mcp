@@ -38,6 +38,17 @@ jobs:
       - name: Apply endpoint implementation and tests
         run: python .github/scripts/apply_ad_group_ad_status_endpoint.py
 
+      - name: Update policy version regression expectations
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          for path in Path("tests").rglob("*.py"):
+              text = path.read_text(encoding="utf-8")
+              updated = text.replace("mutation-safety-v4", "mutation-safety-v5")
+              if updated != text:
+                  path.write_text(updated, encoding="utf-8")
+          PY
+
       - name: Refresh MCP tool golden
         run: python -m tests.smoke.generate_golden
 
