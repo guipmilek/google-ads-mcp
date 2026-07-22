@@ -29,8 +29,9 @@ from ads_mcp.mutation_policy import (
 class TestMutationPolicy(unittest.TestCase):
     def test_boolean_parser_accepts_documented_true_values(self):
         for raw in ("true", "TRUE", " true ", "1", "yes", "on"):
-            with self.subTest(raw=raw), patch.dict(
-                os.environ, {"GATE": raw}, clear=True
+            with (
+                self.subTest(raw=raw),
+                patch.dict(os.environ, {"GATE": raw}, clear=True),
             ):
                 parsed = parse_boolean_environment("GATE")
                 self.assertTrue(parsed.value)
@@ -38,8 +39,9 @@ class TestMutationPolicy(unittest.TestCase):
 
     def test_boolean_parser_accepts_documented_false_values(self):
         for raw in ("false", "0", "no", "off", ""):
-            with self.subTest(raw=raw), patch.dict(
-                os.environ, {"GATE": raw}, clear=True
+            with (
+                self.subTest(raw=raw),
+                patch.dict(os.environ, {"GATE": raw}, clear=True),
             ):
                 parsed = parse_boolean_environment("GATE")
                 self.assertFalse(parsed.value)
@@ -128,8 +130,9 @@ class TestMutationPolicy(unittest.TestCase):
             ),
         )
         for operations, partial_failure, reason_code in cases:
-            with self.subTest(reason_code=reason_code), patch.dict(
-                os.environ, {}, clear=True
+            with (
+                self.subTest(reason_code=reason_code),
+                patch.dict(os.environ, {}, clear=True),
             ):
                 config = MutationSafetyConfig.from_environment()
                 classification = classify_operations(
