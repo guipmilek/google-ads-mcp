@@ -47,9 +47,7 @@ def _centralized_live_execution_policy(
     partial_failure: bool,
 ) -> None:
     """Defense-in-depth policy used by the underlying mutation engine."""
-    if not mutation_safety._env_bool(
-        "GOOGLE_ADS_MUTATIONS_ENABLED", False
-    ):
+    if not mutation_safety._env_bool("GOOGLE_ADS_MUTATIONS_ENABLED", False):
         raise ToolError(
             "Live mutations are disabled. Set "
             "GOOGLE_ADS_MUTATIONS_ENABLED=true."
@@ -304,7 +302,8 @@ def _verify_policy_envelope(
             "Confirmation envelope version is not supported.",
         ),
         (
-            token_hash == operation_hash and payload.get("hash") == operation_hash,
+            token_hash == operation_hash
+            and payload.get("hash") == operation_hash,
             "CONFIRMATION_HASH_MISMATCH",
             "Confirmation hash does not match the exact operation payload.",
         ),
