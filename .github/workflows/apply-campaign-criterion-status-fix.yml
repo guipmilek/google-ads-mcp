@@ -1,0 +1,224 @@
+name: Apply CampaignCriterion status normalization fix
+
+on:
+  push:
+    branches:
+      - fix/campaign-criterion-status-normalization
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Apply focused normalization fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("ads_mcp/mutation_safety.py")
+          text = path.read_text(encoding="utf-8")
+          start = text.index("def _apply_create_status_guard(")
+          end = text.index("\n\ndef _validate_resource_name", start)
+          replacement = '''_CAMPAIGN_CRITERION_TYPES_WITH_IMPLICIT_STATUS = frozenset(
+              {"language", "location"}
+          )
+
+
+          def _campaign_criterion_uses_implicit_status(
+              data: Dict[str, Any], resource_descriptor: Any
+          ) -> bool:
+              """Returns whether create must omit CampaignCriterion.status."""
+              if getattr(resource_descriptor, "name", None) != "CampaignCriterion":
+                  return False
+              return any(
+                  criterion_type in data
+                  for criterion_type in _CAMPAIGN_CRITERION_TYPES_WITH_IMPLICIT_STATUS
+              )
+
+
+          def _apply_create_status_guard(
+              data: Dict[str, Any], resource_descriptor: Any
+          ) -> Dict[str, Any]:
+              """Defaults safe creates to PAUSED without corrupting criteria."""
+              prepared = copy.deepcopy(data)
+              if _campaign_criterion_uses_implicit_status(
+                  prepared, resource_descriptor
+              ):
+                  if "status" in prepared:
+                      raise ToolError(
+                          "CampaignCriterion language and location creates must omit "
+                          "status because Google Ads rejects status for these "
+                          "criterion types."
+                      )
+                  return prepared
+
+              status_field = resource_descriptor.fields_by_name.get("status")
+              if status_field is None or status_field.enum_type is None:
+                  return prepared
+
+              enum_names = {value.name for value in status_field.enum_type.values}
+              if "PAUSED" not in enum_names:
+                  return prepared
+
+              requested_status = str(prepared.get("status", "PAUSED")).upper()
+              if requested_status != "PAUSED":
+                  raise ToolError(
+                      "Resources that support PAUSED must be created as PAUSED. Review "
+                      "the resource, then enable it with a separate update."
+                  )
+              prepared["status"] = "PAUSED"
+              return prepared
+          '''
+          # Remove YAML/heredoc indentation embedded in the replacement literal.
+          replacement = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in replacement.splitlines()
+          )
+          path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
+          PY
+
+          cat > tests/campaign_criterion_status_guard_test.py <<'PY'
+          # Copyright 2026 Google LLC.
+          #
+          # Licensed under the Apache License, Version 2.0 (the "License");
+          # you may not use this file except in compliance with the License.
+          # You may obtain a copy of the License at
+          #
+          #      http://www.apache.org/licenses/LICENSE-2.0
+          #
+          # Unless required by applicable law or agreed to in writing, software
+          # distributed under the License is distributed on an "AS IS" BASIS,
+          # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+          # See the License for the specific language governing permissions and
+          # limitations under the License.
+
+          """Regression tests for CampaignCriterion create status normalization."""
+
+          from types import SimpleNamespace
+          import unittest
+
+          from fastmcp.exceptions import ToolError
+
+          from ads_mcp import mutation_safety
+
+
+          class TestCampaignCriterionStatusGuard(unittest.TestCase):
+              def _descriptor(self, name="CampaignCriterion"):
+                  status_field = SimpleNamespace(
+                      enum_type=SimpleNamespace(
+                          values=[
+                              SimpleNamespace(name="UNSPECIFIED"),
+                              SimpleNamespace(name="ENABLED"),
+                              SimpleNamespace(name="PAUSED"),
+                              SimpleNamespace(name="REMOVED"),
+                          ]
+                      )
+                  )
+                  return SimpleNamespace(
+                      name=name,
+                      fields_by_name={"status": status_field},
+                  )
+
+              def test_language_create_does_not_inject_status(self):
+                  data = {
+                      "campaign": "customers/8448275903/campaigns/24055919265",
+                      "language": {
+                          "language_constant": "languageConstants/1014"
+                      },
+                  }
+
+                  result = mutation_safety._apply_create_status_guard(
+                      data, self._descriptor()
+                  )
+
+                  self.assertEqual(result, data)
+                  self.assertNotIn("status", result)
+
+              def test_location_create_does_not_inject_status(self):
+                  data = {
+                      "campaign": "customers/8448275903/campaigns/24055919265",
+                      "location": {
+                          "geo_target_constant": "geoTargetConstants/1001773"
+                      },
+                  }
+
+                  result = mutation_safety._apply_create_status_guard(
+                      data, self._descriptor()
+                  )
+
+                  self.assertEqual(result, data)
+                  self.assertNotIn("status", result)
+
+              def test_explicit_status_is_rejected_for_implicit_status_criteria(self):
+                  cases = (
+                      (
+                          "language",
+                          {"language_constant": "languageConstants/1014"},
+                      ),
+                      (
+                          "location",
+                          {"geo_target_constant": "geoTargetConstants/1001773"},
+                      ),
+                  )
+                  for criterion_type, criterion_data in cases:
+                      with self.subTest(criterion_type=criterion_type):
+                          with self.assertRaisesRegex(
+                              ToolError, "must omit status"
+                          ):
+                              mutation_safety._apply_create_status_guard(
+                                  {
+                                      "campaign": (
+                                          "customers/8448275903/campaigns/"
+                                          "24055919265"
+                                      ),
+                                      criterion_type: criterion_data,
+                                      "status": "PAUSED",
+                                  },
+                                  self._descriptor(),
+                              )
+
+              def test_other_status_resources_still_default_to_paused(self):
+                  result = mutation_safety._apply_create_status_guard(
+                      {"name": "Paused by guard"},
+                      self._descriptor(name="Campaign"),
+                  )
+
+                  self.assertEqual(result["status"], "PAUSED")
+
+
+          if __name__ == "__main__":
+              unittest.main()
+          PY
+          sed -i 's/^          //' tests/campaign_criterion_status_guard_test.py
+
+      - name: Install project
+        run: python -m pip install -e ".[dev]"
+
+      - name: Validate
+        run: |
+          python -m compileall ads_mcp tests
+          python -m unittest discover -s tests -p "*_test.py" -v
+          black --check -l 80 ads_mcp tests horizon_server.py
+
+      - name: Commit validated fix
+        shell: bash
+        run: |
+          rm .github/workflows/apply-campaign-criterion-status-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: omit status for language and location criteria"
+          git push origin HEAD:fix/campaign-criterion-status-normalization
