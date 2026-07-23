@@ -7,35 +7,48 @@ _ADC_PATH = Path("/tmp/google-ads-adc.json")
 
 
 def configure_deployment_credentials() -> Path | None:
-    """Load the shared MCP_CREDENTIALS envelope for Horizon.
+    """Load Google Ads credentials for Horizon.
 
-    Workload identity or an already configured GOOGLE_APPLICATION_CREDENTIALS
-    path remains supported when google_credentials is absent.
+    ``MCP_CREDENTIALS`` accepts either the shared credential envelope or a raw
+    Google credential object. Existing deployments that still use
+    ``GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64`` remain functional while
+    they are migrated.
     """
     encoded = os.getenv("MCP_CREDENTIALS", "").strip()
+    source_name = "MCP_CREDENTIALS"
+    if not encoded:
+        encoded = os.getenv(
+            "GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64", ""
+        ).strip()
+        source_name = "GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64"
     if not encoded:
         return None
 
     try:
-        envelope = json.loads(
+        payload = json.loads(
             base64.b64decode(encoded, validate=True).decode("utf-8")
         )
     except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise RuntimeError(
-            "MCP_CREDENTIALS must be a base64-encoded JSON object."
+            f"{source_name} must be a base64-encoded JSON object."
         ) from exc
 
-    if not isinstance(envelope, dict):
-        raise RuntimeError("MCP_CREDENTIALS must decode to a JSON object.")
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"{source_name} must decode to a JSON object.")
 
-    developer_token = envelope.get("developer_token")
+    developer_token = payload.get("developer_token")
+    if not isinstance(developer_token, str) or not developer_token.strip():
+        developer_token = os.getenv("GOOGLE_ADS_DEVELOPER_TOKEN", "")
     if not isinstance(developer_token, str) or not developer_token.strip():
         raise RuntimeError(
             "MCP_CREDENTIALS.developer_token must be a non-empty string."
         )
     os.environ["GOOGLE_ADS_DEVELOPER_TOKEN"] = developer_token.strip()
 
-    login_customer_id = envelope.get("login_customer_id")
+    login_customer_id = payload.get(
+        "login_customer_id",
+        os.getenv("GOOGLE_ADS_LOGIN_CUSTOMER_ID"),
+    )
     if login_customer_id is not None:
         normalized = str(login_customer_id).replace("-", "").strip()
         if not normalized.isdigit():
@@ -44,7 +57,9 @@ def configure_deployment_credentials() -> Path | None:
             )
         os.environ["GOOGLE_ADS_LOGIN_CUSTOMER_ID"] = normalized
 
-    credentials = envelope.get("google_credentials")
+    credentials = payload.get("google_credentials")
+    if credentials is None and isinstance(payload.get("type"), str):
+        credentials = payload
     if credentials is None:
         return None
     if not isinstance(credentials, dict):

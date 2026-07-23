@@ -49,6 +49,29 @@ class TestMutateRequest(unittest.TestCase):
                     os.environ["GOOGLE_ADS_LOGIN_CUSTOMER_ID"],
                 )
 
+    def test_legacy_raw_credentials_materialize_ads_settings(self):
+        credentials = {"type": "service_account", "project_id": "test"}
+        encoded = base64.b64encode(json.dumps(credentials).encode()).decode()
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "adc.json"
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64": encoded,
+                        "GOOGLE_ADS_DEVELOPER_TOKEN": "dev-token",
+                    },
+                    clear=True,
+                ),
+                patch.object(horizon_server, "_ADC_PATH", target),
+            ):
+                configured = horizon_server.configure_deployment_credentials()
+                self.assertEqual(target, configured)
+                self.assertEqual(credentials, json.loads(target.read_text()))
+                self.assertEqual(
+                    "dev-token", os.environ["GOOGLE_ADS_DEVELOPER_TOKEN"]
+                )
+
     def _environment(self):
         return {
             "MCP_CONFIG": json.dumps(
