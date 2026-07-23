@@ -34,10 +34,11 @@ library. Use `get_mutation_schema` before constructing a payload.
 `partial_failure=true`, temporary negative resource IDs are rejected because
 dependent operations cannot safely use partial-failure semantics.
 
-## Horizon deployment: two keys
+## Horizon deployment: at most two keys
 
 ```env
 MCP_CREDENTIALS=<base64-encoded credential envelope>
+# Optional restriction:
 MCP_CONFIG={"customers":["8448275903"],"max_operations":20,"max_daily_budget_micros":50000000,"max_total_budget_micros":500000000}
 ```
 
@@ -45,8 +46,11 @@ The credential envelope contains `google_credentials`, `developer_token`, and
 optional `login_customer_id`. `google_credentials` may be omitted when
 workload identity provides ADC.
 
-An empty customer allowlist fails closed. Resource names and all nested
-`customers/...` references must belong to the request customer.
+`MCP_CONFIG` is optional. Without it, or when `customers` is absent or empty,
+every customer accessible to the credential is allowed, the default
+20-operation limit applies, and no budget caps are configured. Resource names
+and all nested `customers/...` references must still belong to the request
+customer.
 
 Legacy Horizon variables such as
 `GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64`,

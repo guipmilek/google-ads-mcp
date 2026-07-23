@@ -37,15 +37,16 @@ sends the live mutation in the same MCP invocation. `dry_run=true` stops after
 the native validation call.
 
 There are no server-side action gates, confirmation strings, approval codes,
-or prepare/execute pairs. `MCP_CONFIG.customers` remains mandatory,
-and cross-customer resource references, invalid schemas/update masks,
+or prepare/execute pairs. Cross-customer resource references, invalid
+schemas/update masks,
 operation limits, temporary-ID/partial-failure conflicts, and configured
 budget caps remain enforced. See [MUTATIONS.md](MUTATIONS.md).
 
-Horizon uses exactly two deployment keys:
+Horizon uses at most two deployment keys:
 
 ```env
 MCP_CREDENTIALS=<base64-encoded credential envelope>
+# Optional restriction:
 MCP_CONFIG={"customers":["8448275903"],"max_operations":20}
 ```
 
@@ -63,6 +64,8 @@ token, and an optional manager account:
 `google_credentials` may be omitted when Horizon supplies workload identity.
 No separate Google Ads credential, developer-token, login-customer, allowlist,
 operation-limit, or budget-limit deployment variables are needed.
+`MCP_CONFIG` may be omitted to allow every customer accessible to the
+credential with the default 20-operation limit and no configured budget caps.
 
 ### Configuring and Namespacing Tools
 

@@ -82,9 +82,7 @@ def _allowed_customer_ids() -> set[str]:
 def _validate_customer_scope(customer_id: str) -> str:
     normalized = _normalize_customer_id(customer_id)
     allowed = _allowed_customer_ids()
-    if not allowed:
-        raise ToolError("MCP_CONFIG.customers is not configured.")
-    if normalized not in allowed:
+    if allowed and normalized not in allowed:
         raise ToolError(
             f"Customer {normalized} is outside MCP_CONFIG.customers."
         )

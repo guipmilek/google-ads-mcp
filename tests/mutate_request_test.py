@@ -212,10 +212,11 @@ class TestMutateRequest(unittest.TestCase):
             )
 
         with patch.dict(os.environ, {}, clear=True):
-            with self.assertRaisesRegex(
-                ToolError, "MCP_CONFIG.customers is not configured"
-            ):
-                mutation_safety._validate_customer_scope("8448275903")
+            self.assertEqual(
+                "8448275903",
+                mutation_safety._validate_customer_scope("8448275903"),
+            )
+            self.assertEqual(20, mutation_safety._max_operations())
 
     def test_ad_group_status_builder_rejects_cross_customer_target(self):
         with self.assertRaisesRegex(ToolError, "does not match"):
