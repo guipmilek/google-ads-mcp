@@ -2,28 +2,40 @@
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""Regression tests for GoogleAdsService.Mutate request construction."""
+"""Regression tests for the direct GoogleAdsService.Mutate contract."""
 
-import json
+import inspect
+import os
 import unittest
 from unittest.mock import MagicMock, patch
 
 from fastmcp.exceptions import ToolError
 
-from ads_mcp import mutation_engine
+from ads_mcp import mutation_engine, mutation_gateway, mutation_safety
+from ads_mcp.tools.mutations import mutations_mcp
 
 
 class TestMutateRequest(unittest.TestCase):
+    def _environment(self):
+        return {
+            "GOOGLE_ADS_ALLOWED_CUSTOMER_IDS": "8448275903",
+            "GOOGLE_ADS_MAX_OPERATIONS_PER_REQUEST": "20",
+            "GOOGLE_ADS_MUTATIONS_ENABLED": "false",
+            "GOOGLE_ADS_ALLOW_REMOVE": "false",
+            "GOOGLE_ADS_CONFIRMATION_SECRET": "unused",
+        }
+
+    def _prepared_operation(self):
+        return (
+            MagicMock(),
+            {
+                "action": "create",
+                "resource": "CampaignBudget",
+                "data": {"amount_micros": 20000000},
+            },
+        )
+
     def test_build_mutate_request_sets_all_request_fields(self):
         client = MagicMock()
         request = MagicMock()
@@ -40,266 +52,167 @@ class TestMutateRequest(unittest.TestCase):
         )
 
         self.assertIs(result, request)
-        client.get_type.assert_called_once_with("MutateGoogleAdsRequest")
         self.assertEqual(request.customer_id, "8448275903")
         request.mutate_operations.extend.assert_called_once_with(operations)
         self.assertTrue(request.partial_failure)
         self.assertTrue(request.validate_only)
         self.assertEqual(request.response_content_type, 2)
 
-    def _prepared_operation(self):
-        return (
-            MagicMock(),
-            {
-                "action": "create",
-                "resource": "CampaignBudget",
-                "data": {"amount_micros": 20000000},
-            },
-        )
-
-    @patch("ads_mcp.mutation_engine._validate_confirmation_configuration")
-    @patch(
-        "ads_mcp.mutation_engine._issue_validation_receipt",
-        return_value={
-            "confirmation": "EXECUTE hash.payload.signature",
-            "expires_at": 1000,
-            "cross_instance_valid": True,
-            "replay_protection": "BEST_EFFORT_PROCESS_LOCAL",
-            "globally_single_use": False,
-        },
-    )
     @patch(
         "ads_mcp.mutation_engine.utils.format_output_value",
         return_value={},
     )
     @patch("ads_mcp.mutation_engine._prepare_operation")
     @patch("ads_mcp.mutation_engine.utils.get_googleads_client")
-    def test_validation_passes_request_object_and_issues_confirmation(
-        self,
-        mock_get_client,
-        mock_prepare_operation,
-        mock_format_output,
-        mock_issue_receipt,
-        mock_validate_config,
+    def test_dry_run_uses_one_native_validate_only_call(
+        self, get_client, prepare, format_output
     ):
         client = MagicMock()
         request = MagicMock()
         service = MagicMock()
-        response = MagicMock()
-
         client.get_type.return_value = request
         client.get_service.return_value = service
         client.enums.ResponseContentTypeEnum.MUTABLE_RESOURCE = 2
-        service.mutate.return_value = response
-        mock_get_client.return_value = client
-        mock_prepare_operation.return_value = self._prepared_operation()
+        service.mutate.return_value = MagicMock()
+        get_client.return_value = client
+        prepare.return_value = self._prepared_operation()
 
-        result = mutation_engine._run_mutations(
-            "8448275903",
-            [
-                {
-                    "action": "create",
-                    "resource": "CampaignBudget",
-                    "data": {"amount_micros": 20000000},
-                }
-            ],
-            validate_only=True,
-            partial_failure=False,
-            confirmation=None,
-        )
+        with patch.dict(os.environ, self._environment(), clear=True):
+            result = mutation_engine.create_resource(
+                "8448275903",
+                "CampaignBudget",
+                {"amount_micros": 20000000},
+                dry_run=True,
+            )
 
         service.mutate.assert_called_once_with(request=request)
-        self.assertTrue(result["validated"])
-        self.assertFalse(result["executed"])
-        self.assertEqual(result["validation_status"], "PASSED")
-        self.assertIsNotNone(result["required_confirmation"])
-        mock_format_output.assert_called_once_with(response)
-        mock_issue_receipt.assert_called_once()
-        mock_validate_config.assert_called_once()
+        self.assertTrue(request.validate_only)
+        self.assertEqual("DRY_RUN", result["mode"])
+        self.assertEqual("NOT_EXECUTED", result["execution_status"])
+        self.assertFalse(result["verification"]["google_ads_mutation_sent"])
+        format_output.assert_called_once()
 
-    @patch("ads_mcp.mutation_engine._validate_confirmation_configuration")
-    @patch("ads_mcp.mutation_engine._issue_validation_receipt")
     @patch(
         "ads_mcp.mutation_engine.utils.format_output_value",
-        return_value={
-            "partial_failure_error": {
-                "code": 3,
-                "message": "One operation is invalid.",
-            }
-        },
+        side_effect=[
+            {},
+            {
+                "results": [
+                    {"resource_name": "customers/8448275903/campaignBudgets/1"}
+                ]
+            },
+        ],
     )
     @patch("ads_mcp.mutation_engine._prepare_operation")
     @patch("ads_mcp.mutation_engine.utils.get_googleads_client")
-    def test_partial_failure_validation_does_not_issue_confirmation(
-        self,
-        mock_get_client,
-        mock_prepare_operation,
-        mock_format_output,
-        mock_issue_receipt,
-        mock_validate_config,
+    def test_live_call_validates_then_executes_without_confirmation(
+        self, get_client, prepare, _format_output
     ):
         client = MagicMock()
-        client.get_type.return_value = MagicMock()
-        client.get_service.return_value.mutate.return_value = MagicMock()
+        validation_request = MagicMock()
+        execution_request = MagicMock()
+        client.get_type.side_effect = [validation_request, execution_request]
+        service = MagicMock()
+        service.mutate.side_effect = [MagicMock(), MagicMock()]
+        client.get_service.return_value = service
         client.enums.ResponseContentTypeEnum.MUTABLE_RESOURCE = 2
-        mock_get_client.return_value = client
-        mock_prepare_operation.return_value = self._prepared_operation()
+        get_client.return_value = client
+        prepare.return_value = self._prepared_operation()
 
-        result = mutation_engine._run_mutations(
-            "8448275903",
-            [
-                {
-                    "action": "create",
-                    "resource": "CampaignBudget",
-                    "data": {"amount_micros": 20000000},
-                }
-            ],
-            validate_only=True,
-            partial_failure=True,
-            confirmation=None,
+        with patch.dict(os.environ, self._environment(), clear=True):
+            result = mutation_engine.create_resource(
+                "8448275903",
+                "CampaignBudget",
+                {"amount_micros": 20000000},
+            )
+
+        self.assertEqual(2, service.mutate.call_count)
+        self.assertTrue(validation_request.validate_only)
+        self.assertFalse(execution_request.validate_only)
+        self.assertEqual("EXECUTE", result["mode"])
+        self.assertEqual("SUCCEEDED", result["execution_status"])
+        self.assertNotIn("required_confirmation", result)
+        self.assertTrue(
+            result["verification"]["native_validate_only_completed"]
         )
 
-        self.assertFalse(result["validated"])
-        self.assertEqual(result["validation_status"], "FAILED_PARTIAL")
-        self.assertIsNone(result["required_confirmation"])
-        mock_issue_receipt.assert_not_called()
-        mock_format_output.assert_called_once()
-        mock_validate_config.assert_called_once()
+    def test_public_write_signatures_are_direct(self):
+        for function in (
+            mutation_gateway.create_resource,
+            mutation_gateway.update_resource,
+            mutation_gateway.remove_resource,
+            mutation_gateway.update_ad_group_ad_statuses,
+            mutation_gateway.batch_mutate,
+        ):
+            parameters = inspect.signature(function).parameters
+            self.assertIn("dry_run", parameters)
+            self.assertNotIn("validate_only", parameters)
+            self.assertNotIn("confirmation", parameters)
 
-    @patch(
-        "ads_mcp.mutation_engine._validate_live_execution",
-        return_value={
-            "registered_before_api_call": True,
-            "confirmation": "EXECUTE hash.payload.signature",
-        },
-    )
-    @patch(
-        "ads_mcp.mutation_engine.utils.format_output_value",
-        return_value={
-            "partial_failure_error": {
-                "code": 3,
-                "message": "One operation failed.",
-            }
-        },
-    )
-    @patch("ads_mcp.mutation_engine._prepare_operation")
-    @patch("ads_mcp.mutation_engine.utils.get_googleads_client")
-    def test_execute_reports_partial_failure_without_claiming_success(
-        self,
-        mock_get_client,
-        mock_prepare_operation,
-        mock_format_output,
-        mock_validate_execution,
-    ):
-        client = MagicMock()
-        client.get_type.return_value = MagicMock()
-        client.get_service.return_value.mutate.return_value = MagicMock()
-        client.enums.ResponseContentTypeEnum.MUTABLE_RESOURCE = 2
-        mock_get_client.return_value = client
-        mock_prepare_operation.return_value = self._prepared_operation()
-
-        result = mutation_engine._run_mutations(
-            "8448275903",
-            [
-                {
-                    "action": "create",
-                    "resource": "CampaignBudget",
-                    "data": {"amount_micros": 20000000},
-                }
-            ],
-            validate_only=False,
-            partial_failure=True,
-            confirmation="EXECUTE hash.payload.signature",
+    def test_horizon_annotations_are_truthful(self):
+        components = {
+            component.name: component
+            for key, component in mutations_mcp.local_provider._components.items()
+            if key.startswith("tool:")
+        }
+        remove = components["remove_resource"].annotations
+        self.assertFalse(remove.readOnlyHint)
+        self.assertTrue(remove.destructiveHint)
+        self.assertFalse(remove.idempotentHint)
+        self.assertTrue(remove.openWorldHint)
+        self.assertTrue(
+            components["get_mutation_crud_status"].annotations.readOnlyHint
         )
 
-        self.assertIsNone(result["executed"])
-        self.assertTrue(result["execution_attempted"])
-        self.assertEqual(result["execution_status"], "PARTIAL_FAILURE")
-        self.assertIsNotNone(result["partial_failure_error"])
-        mock_validate_execution.assert_called_once()
-        mock_format_output.assert_called_once()
+    def test_legacy_gate_environment_is_ignored_but_scope_is_enforced(self):
+        with patch.dict(os.environ, self._environment(), clear=True):
+            status = mutation_gateway.get_mutation_crud_status()
+            self.assertEqual("DIRECT", status["write_mode"])
+            self.assertFalse(status["approval_workflow"])
+            self.assertEqual(["8448275903"], status["allowed_customer_ids"])
+            self.assertEqual(
+                "8448275903",
+                mutation_safety._validate_customer_scope("844-827-5903"),
+            )
+
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(
+                ToolError, "ALLOWED_CUSTOMER_IDS is not configured"
+            ):
+                mutation_safety._validate_customer_scope("8448275903")
+
+    def test_ad_group_status_builder_rejects_cross_customer_target(self):
+        with self.assertRaisesRegex(ToolError, "does not match"):
+            mutation_gateway._build_ad_group_ad_status_operations(
+                "8448275903",
+                ["customers/1111111111/adGroupAds/2~3"],
+                "PAUSED",
+            )
 
     @patch("ads_mcp.mutation_engine._prepare_operation")
     @patch("ads_mcp.mutation_engine.utils.get_googleads_client")
-    def test_partial_failure_rejects_temporary_resource_ids(
-        self,
-        mock_get_client,
-        mock_prepare_operation,
-    ):
+    def test_partial_failure_rejects_temporary_ids(self, get_client, prepare):
         client = MagicMock()
-        mock_get_client.return_value = client
-        mock_prepare_operation.return_value = (
+        get_client.return_value = client
+        prepare.return_value = (
             MagicMock(),
             {
                 "action": "create",
                 "resource": "Campaign",
-                "data": {
-                    "resource_name": ("customers/8448275903/campaigns/-1")
-                },
+                "data": {"resource_name": "customers/8448275903/campaigns/-1"},
             },
         )
-
-        with self.assertRaisesRegex(ToolError, "temporary negative"):
-            mutation_engine._run_mutations(
+        with (
+            patch.dict(os.environ, self._environment(), clear=True),
+            self.assertRaisesRegex(ToolError, "temporary negative"),
+        ):
+            mutation_engine.batch_mutate(
                 "8448275903",
-                [
-                    {
-                        "action": "create",
-                        "resource": "Campaign",
-                        "data": {
-                            "resource_name": (
-                                "customers/8448275903/campaigns/-1"
-                            )
-                        },
-                    }
-                ],
-                validate_only=True,
+                [{"action": "create", "resource": "Campaign", "data": {}}],
+                dry_run=True,
                 partial_failure=True,
-                confirmation=None,
             )
         client.get_service.assert_not_called()
-
-    @patch("ads_mcp.mutation_engine._prepare_operation")
-    @patch("ads_mcp.mutation_engine.utils.get_googleads_client")
-    def test_unexpected_live_error_reports_unknown_execution_state(
-        self,
-        mock_get_client,
-        mock_prepare_operation,
-    ):
-        client = MagicMock()
-        client.get_type.return_value = MagicMock()
-        client.get_service.return_value.mutate.side_effect = RuntimeError(
-            "transport disconnected"
-        )
-        client.enums.ResponseContentTypeEnum.MUTABLE_RESOURCE = 2
-        mock_get_client.return_value = client
-        mock_prepare_operation.return_value = self._prepared_operation()
-
-        with (
-            patch(
-                "ads_mcp.mutation_engine._validate_live_execution",
-                return_value={"registered_before_api_call": True},
-            ),
-            self.assertRaises(ToolError) as context,
-        ):
-            mutation_engine._run_mutations(
-                "8448275903",
-                [
-                    {
-                        "action": "create",
-                        "resource": "CampaignBudget",
-                        "data": {"amount_micros": 20000000},
-                    }
-                ],
-                validate_only=False,
-                partial_failure=False,
-                confirmation="EXECUTE hash.payload.signature",
-            )
-
-        payload = json.loads(str(context.exception))
-        self.assertEqual(payload["execution_state"], "UNKNOWN")
-        self.assertTrue(payload["execution_may_have_completed"])
-        self.assertFalse(payload["automatic_retry_safe"])
 
 
 if __name__ == "__main__":

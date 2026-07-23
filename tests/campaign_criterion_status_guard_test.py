@@ -99,13 +99,16 @@ class TestCampaignCriterionStatusGuard(unittest.TestCase):
                         self._descriptor(),
                     )
 
-    def test_other_resources_still_default_to_paused(self):
+    def test_other_resources_preserve_requested_create_payload(self):
         result = self.guard(
-            {"name": "Paused by guard"},
+            {"name": "Direct create", "status": "ENABLED"},
             self._descriptor(name="Campaign"),
         )
 
-        self.assertEqual(result["status"], "PAUSED")
+        self.assertEqual(
+            {"name": "Direct create", "status": "ENABLED"},
+            result,
+        )
 
     def test_install_is_idempotent(self):
         first = mutation_safety._apply_create_status_guard

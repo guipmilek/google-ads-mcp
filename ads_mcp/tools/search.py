@@ -142,5 +142,14 @@ def _search_tool_description() -> str:
 # including the `search` method's docstring.
 search.__doc__ = _search_tool_description()
 search_mcp.add_tool(
-    Tool.from_function(search, annotations=ToolAnnotations(readOnlyHint=True))
+    Tool.from_function(
+        search,
+        annotations=ToolAnnotations(
+            title="Search Google Ads",
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=True,
+        ),
+    )
 )

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Generic, guarded CRUD tools backed by ``GoogleAdsService.Mutate``.
+"""Generic direct CRUD tools backed by ``GoogleAdsService.Mutate``.
 
 Read operations remain available through the existing ``search`` tool. This
 module supplies create, update, remove, schema discovery, and mixed batch
@@ -23,8 +23,6 @@ from __future__ import annotations
 
 from collections import Counter
 import copy
-from datetime import datetime, timezone
-import hashlib
 import json
 from typing import Any, Dict, List
 
@@ -38,19 +36,16 @@ from ads_mcp.mutation_safety import (
     _ACTIONS,
     _OPERATION_HASH_VERSION,
     _apply_create_status_guard,
+    _contains_enabled_status,
     _contains_temporary_resource_id,
-    _clear_confirmation_replay_cache_for_tests,
-    _issue_validation_receipt,
-    _validate_confirmation_configuration,
     _max_operations,
-    _normalize_customer_id,
     _normalize_update_mask,
     _operation_hash,
-    _required_confirmation_verb,
     _validate_budget_limit,
-    _validate_live_execution,
+    _validate_customer_scope,
     _validate_resource_name,
     _validate_resource_references,
+    CRUD_CONTRACT_VERSION,
 )
 from ads_mcp.mutation_schema import (
     _resolve_operation,
@@ -281,8 +276,7 @@ def _build_operation_scope(
         "resources": dict(sorted(resource_counts.items())),
         "requested_resource_names": requested_resource_names,
         "contains_remove": action_counts.get("remove", 0) > 0,
-        "contains_enable": _required_confirmation_verb(prepared_operations)
-        in {"ENABLE", "REMOVE_AND_ENABLE"},
+        "contains_enable": _contains_enabled_status(prepared_operations),
     }
 
 
@@ -304,12 +298,6 @@ def _collect_resource_names(value: Any) -> List[str]:
     return sorted(names)
 
 
-def _iso_timestamp(timestamp: float | None) -> str | None:
-    if timestamp is None:
-        return None
-    return datetime.fromtimestamp(timestamp, timezone.utc).isoformat()
-
-
 def _partial_failure_error(response_payload: Any) -> Dict[str, Any] | None:
     if not isinstance(response_payload, dict):
         return None
@@ -328,19 +316,19 @@ def _run_mutations(
     customer_id: str,
     operations: List[Dict[str, Any]],
     *,
-    validate_only: bool,
+    dry_run: bool,
     partial_failure: bool,
-    confirmation: str | None,
 ) -> Dict[str, Any]:
-    normalized_customer_id = _normalize_customer_id(customer_id)
+    """Validate natively and execute in one direct connector call."""
+
+    normalized_customer_id = _validate_customer_scope(customer_id)
     if not operations:
         raise ToolError("At least one operation is required.")
     maximum = _max_operations()
     if len(operations) > maximum:
         raise ToolError(
             f"This request contains {len(operations)} operations; the "
-            f"configured maximum is {maximum}. Split the plan into "
-            "independently validated stages."
+            f"configured maximum is {maximum}."
         )
 
     client = utils.get_googleads_client()
@@ -363,116 +351,111 @@ def _run_mutations(
             "partial_failure=true cannot be used with temporary negative "
             "resource IDs or dependent operations."
         )
-    if validate_only:
-        _validate_confirmation_configuration()
-
-    confirmation_receipt: Dict[str, Any] | None = None
-    if not validate_only:
-        confirmation_receipt = _validate_live_execution(
-            normalized_customer_id,
-            prepared_operations,
-            request_hash,
-            confirmation,
-            partial_failure=partial_failure,
-        )
 
     service = client.get_service(
         "GoogleAdsService", interceptors=[MCPHeaderInterceptor()]
     )
-    request = _build_mutate_request(
+
+    validation_request = _build_mutate_request(
         client,
         normalized_customer_id,
         mutate_operations,
         partial_failure=partial_failure,
-        validate_only=validate_only,
+        validate_only=True,
     )
     try:
-        response = service.mutate(request=request)
-    except GoogleAdsException as ex:
-        raise _format_google_ads_exception(
-            ex, request_hash, validate_only
-        ) from ex
+        validation_response = service.mutate(request=validation_request)
+    except GoogleAdsException as exc:
+        raise _format_google_ads_exception(exc, request_hash, True) from exc
     except Exception as exc:
-        raise _format_internal_mutation_error(
-            exc, request_hash, validate_only
-        ) from exc
+        raise _format_internal_mutation_error(exc, request_hash, True) from exc
 
-    response_payload = utils.format_output_value(response)
-    partial_error = _partial_failure_error(response_payload)
-    validation_passed = validate_only and partial_error is None
-
-    validation_receipt: Dict[str, Any] | None = None
-    if validation_passed:
-        validation_receipt = _issue_validation_receipt(
-            normalized_customer_id,
-            prepared_operations,
-            request_hash,
-            partial_failure,
-        )
-
-    required_confirmation = (
-        validation_receipt["confirmation"] if validation_receipt else None
-    )
-    confirmation_expires_at = _iso_timestamp(
-        validation_receipt["expires_at"] if validation_receipt else None
-    )
-    response_resource_names = _collect_resource_names(response_payload)
-
-    if validate_only:
-        validation_status = "PASSED" if validation_passed else "FAILED_PARTIAL"
-        execution_status = "NOT_EXECUTED"
-    else:
-        validation_status = "PRIOR_VALIDATION_VERIFIED"
-        execution_status = "PARTIAL_FAILURE" if partial_error else "SUCCEEDED"
-
-    confirmation_fingerprint = None
-    if confirmation_receipt:
-        confirmation_fingerprint = hashlib.sha256(
-            confirmation_receipt["confirmation"].encode("utf-8")
-        ).hexdigest()[:16]
-
-    receipt_summary = None
-    if validation_receipt:
-        receipt_summary = {
-            "expires_at": confirmation_expires_at,
-            "cross_instance_valid": validation_receipt["cross_instance_valid"],
-            "replay_protection": validation_receipt["replay_protection"],
-            "globally_single_use": validation_receipt["globally_single_use"],
-        }
-
-    return {
+    validation_payload = utils.format_output_value(validation_response)
+    validation_partial_error = _partial_failure_error(validation_payload)
+    base = {
+        "contract_version": CRUD_CONTRACT_VERSION,
         "customer_id": normalized_customer_id,
-        "mode": "VALIDATE_ONLY" if validate_only else "EXECUTE",
-        "validated": validation_passed if validate_only else True,
-        "validated_in_current_call": validation_passed,
-        "validation_status": validation_status,
-        "execution_attempted": not validate_only,
-        "executed": (
-            False if validate_only else (None if partial_error else True)
-        ),
-        "execution_status": execution_status,
-        "confirmation_verified": confirmation_receipt is not None,
-        "confirmation_registered_before_api_call": (
-            confirmation_receipt is not None
-        ),
-        "confirmation_token_fingerprint": confirmation_fingerprint,
         "operation_count": len(prepared_operations),
         "operation_hash": request_hash,
         "operation_hash_version": _OPERATION_HASH_VERSION,
-        "required_confirmation": required_confirmation,
-        "confirmation_expires_at": confirmation_expires_at,
-        "validation_receipt": receipt_summary,
         "operations": prepared_operations,
         "operation_scope": _build_operation_scope(prepared_operations),
+        "native_validation": {
+            "method": "GoogleAdsService.Mutate",
+            "validate_only": True,
+            "completed": True,
+            "partial_failure_error": validation_partial_error,
+        },
+    }
+
+    if dry_run:
+        return {
+            **base,
+            "mode": "DRY_RUN",
+            "validated": validation_partial_error is None,
+            "validated_in_current_call": True,
+            "validation_status": (
+                "PASSED"
+                if validation_partial_error is None
+                else "PASSED_WITH_PARTIAL_FAILURES"
+            ),
+            "execution_attempted": False,
+            "executed": False,
+            "execution_status": "NOT_EXECUTED",
+            "api_call": {
+                "method": "GoogleAdsService.Mutate",
+                "validate_only": True,
+                "partial_failure": partial_failure,
+                "completed": True,
+            },
+            "response": validation_payload,
+            "verification": {
+                "native_validate_only_completed": True,
+                "google_ads_mutation_sent": False,
+                "post_mutation_read_performed": False,
+            },
+        }
+
+    execution_request = _build_mutate_request(
+        client,
+        normalized_customer_id,
+        mutate_operations,
+        partial_failure=partial_failure,
+        validate_only=False,
+    )
+    try:
+        response = service.mutate(request=execution_request)
+    except GoogleAdsException as exc:
+        raise _format_google_ads_exception(exc, request_hash, False) from exc
+    except Exception as exc:
+        raise _format_internal_mutation_error(exc, request_hash, False) from exc
+
+    response_payload = utils.format_output_value(response)
+    partial_error = _partial_failure_error(response_payload)
+    response_resource_names = _collect_resource_names(response_payload)
+    return {
+        **base,
+        "mode": "EXECUTE",
+        "validated": True,
+        "validated_in_current_call": True,
+        "validation_status": (
+            "PASSED"
+            if validation_partial_error is None
+            else "PASSED_WITH_PARTIAL_FAILURES"
+        ),
+        "execution_attempted": True,
+        "executed": None if partial_error else True,
+        "execution_status": "PARTIAL_FAILURE" if partial_error else "SUCCEEDED",
         "api_call": {
             "method": "GoogleAdsService.Mutate",
-            "validate_only": validate_only,
+            "validate_only": False,
             "partial_failure": partial_failure,
             "completed": True,
         },
         "partial_failure_error": partial_error,
         "response_resource_names": response_resource_names,
         "verification": {
+            "native_validate_only_completed": True,
             "mutate_response_received": True,
             "post_mutation_read_performed": False,
             "claims_limited_to_mutate_response": True,
@@ -486,22 +469,15 @@ def create_resource(
     customer_id: str,
     resource: str,
     data: Dict[str, Any],
-    validate_only: bool = True,
-    confirmation: str | None = None,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
-    """Creates one resource after validation and explicit confirmation.
+    """Create one Google Ads resource directly."""
 
-    First call with ``validate_only=true``. Resources whose status enum supports
-    PAUSED are forced to PAUSED; resources without PAUSED keep their supplied or
-    API-default status. Repeat the exact payload with ``validate_only=false``
-    and the returned short-lived confirmation only after the user approves it.
-    """
     return _run_mutations(
         customer_id,
         [{"action": "create", "resource": resource, "data": data}],
-        validate_only=validate_only,
+        dry_run=dry_run,
         partial_failure=False,
-        confirmation=confirmation,
     )
 
 
@@ -510,10 +486,10 @@ def update_resource(
     resource: str,
     data: Dict[str, Any],
     update_mask: List[str],
-    validate_only: bool = True,
-    confirmation: str | None = None,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
-    """Updates one resource with an explicit field mask and confirmation."""
+    """Update one Google Ads resource directly."""
+
     return _run_mutations(
         customer_id,
         [
@@ -524,9 +500,8 @@ def update_resource(
                 "update_mask": update_mask,
             }
         ],
-        validate_only=validate_only,
+        dry_run=dry_run,
         partial_failure=False,
-        confirmation=confirmation,
     )
 
 
@@ -534,14 +509,10 @@ def remove_resource(
     customer_id: str,
     resource: str,
     resource_name: str,
-    validate_only: bool = True,
-    confirmation: str | None = None,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
-    """Removes one resource when deletion is enabled and confirmed.
+    """Remove one Google Ads resource directly."""
 
-    The response identifies the requested target but does not invent a name or
-    other snapshot fields that were not returned by Google Ads.
-    """
     return _run_mutations(
         customer_id,
         [
@@ -551,32 +522,22 @@ def remove_resource(
                 "resource_name": resource_name,
             }
         ],
-        validate_only=validate_only,
+        dry_run=dry_run,
         partial_failure=False,
-        confirmation=confirmation,
     )
 
 
 def batch_mutate(
     customer_id: str,
     operations: List[Dict[str, Any]],
-    validate_only: bool = True,
+    dry_run: bool = False,
     partial_failure: bool = False,
-    confirmation: str | None = None,
 ) -> Dict[str, Any]:
-    """Runs a mixed-resource mutation after validation.
+    """Run a direct mixed-resource Google Ads mutation."""
 
-    The request is atomic when ``partial_failure=false``. With
-    ``partial_failure=true``, valid operations may succeed while invalid ones
-    are returned as partial failures. Each item uses ``action`` and
-    ``resource``. Creates and updates use ``data``; updates also use
-    ``update_mask``; removes use ``resource_name``. Negative temporary IDs may
-    link resources created in the same request.
-    """
     return _run_mutations(
         customer_id,
         operations,
-        validate_only=validate_only,
+        dry_run=dry_run,
         partial_failure=partial_failure,
-        confirmation=confirmation,
     )

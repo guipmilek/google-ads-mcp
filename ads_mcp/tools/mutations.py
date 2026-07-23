@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Registers guarded Google Ads CRUD tools with FastMCP."""
+"""Registers direct Google Ads CRUD tools with FastMCP."""
 
 from fastmcp import FastMCP
 from fastmcp.tools import Tool
@@ -26,28 +26,40 @@ mutations_mcp = FastMCP("mutations")
 _READ_TOOLS = (
     mutation_engine.list_mutable_resources,
     mutation_engine.get_mutation_schema,
-    mutation_gateway.get_mutation_safety_status,
+    mutation_gateway.get_mutation_crud_status,
 )
 _MUTATION_TOOLS = (
-    mutation_gateway.create_resource,
-    mutation_gateway.update_resource,
-    mutation_gateway.remove_resource,
-    mutation_gateway.update_ad_group_ad_statuses,
-    mutation_gateway.batch_mutate,
+    (mutation_gateway.create_resource, False, False),
+    (mutation_gateway.update_resource, True, True),
+    (mutation_gateway.remove_resource, True, False),
+    (mutation_gateway.update_ad_group_ad_statuses, True, True),
+    (mutation_gateway.batch_mutate, True, False),
 )
 
 for function in _READ_TOOLS:
     mutations_mcp.add_tool(
         Tool.from_function(
             function,
-            annotations=ToolAnnotations(readOnlyHint=True),
+            annotations=ToolAnnotations(
+                title=function.__name__.replace("_", " ").title(),
+                readOnlyHint=True,
+                destructiveHint=False,
+                idempotentHint=True,
+                openWorldHint=True,
+            ),
         )
     )
 
-for function in _MUTATION_TOOLS:
+for function, destructive, idempotent in _MUTATION_TOOLS:
     mutations_mcp.add_tool(
         Tool.from_function(
             function,
-            annotations=ToolAnnotations(readOnlyHint=False),
+            annotations=ToolAnnotations(
+                title=function.__name__.replace("_", " ").title(),
+                readOnlyHint=False,
+                destructiveHint=destructive,
+                idempotentHint=idempotent,
+                openWorldHint=True,
+            ),
         )
     )

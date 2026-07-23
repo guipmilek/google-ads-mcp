@@ -18,6 +18,30 @@ to provide several
 - `list_accessible_customers`: Returns ids of customers directly accessible
   by the user authenticating the call.
 
+### Direct CRUD on Prefect Horizon
+
+The `mutations` namespace exposes:
+
+- `list_mutable_resources`
+- `get_mutation_schema`
+- `get_mutation_crud_status`
+- `create_resource`
+- `update_resource`
+- `remove_resource`
+- `update_ad_group_ad_statuses`
+- `batch_mutate`
+
+Writes use the `direct-crud-v1` contract. A live call validates the protobuf
+payload and scope, sends a native Google Ads `validate_only` request, and then
+sends the live mutation in the same MCP invocation. `dry_run=true` stops after
+the native validation call.
+
+There are no server-side action gates, confirmation strings, approval codes,
+or prepare/execute pairs. `GOOGLE_ADS_ALLOWED_CUSTOMER_IDS` remains mandatory,
+and cross-customer resource references, invalid schemas/update masks,
+operation limits, temporary-ID/partial-failure conflicts, and configured
+budget caps remain enforced. See [MUTATIONS.md](MUTATIONS.md).
+
 ### Configuring and Namespacing Tools
 
 The Google Ads MCP server uses the `tools_config.yaml` to let you selectively enable or disable individual tools or tool categories (namespaces) and customize their namespace prefixes.

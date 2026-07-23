@@ -22,7 +22,15 @@ import ads_mcp.utils as utils
 metadata_mcp = FastMCP("metadata")
 
 
-@metadata_mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@metadata_mcp.tool(
+    annotations=ToolAnnotations(
+        title="Get Google Ads Resource Metadata",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
 def get_resource_metadata(resource_name: str) -> Dict[str, Any]:
     """Retrieves the selectable, filterable, and sortable fields for a specific Google Ads resource,
     including compatible metrics and segments.
