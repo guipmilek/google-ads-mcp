@@ -23,6 +23,12 @@ import os
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.google import GoogleProvider
 
+from ads_mcp.campaign_criterion_status_guard import (
+    install_campaign_criterion_status_guard,
+)
+
+install_campaign_criterion_status_guard()
+
 _CLIENT_ID = os.environ.get("GOOGLE_ADS_MCP_OAUTH_CLIENT_ID")
 _CLIENT_SECRET = os.environ.get("GOOGLE_ADS_MCP_OAUTH_CLIENT_SECRET")
 _BASE_URL = os.environ.get("GOOGLE_ADS_MCP_BASE_URL", "http://localhost:8080")
