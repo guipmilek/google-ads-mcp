@@ -19,14 +19,16 @@ import unittest
 
 from fastmcp.exceptions import ToolError
 
-from ads_mcp import campaign_criterion_status_guard
 from ads_mcp import mutation_safety
+from ads_mcp.campaign_criterion_status_guard import (
+    install_campaign_criterion_status_guard,
+)
 
 
 class TestCampaignCriterionStatusGuard(unittest.TestCase):
     def setUp(self):
         self.original_guard = mutation_safety._apply_create_status_guard
-        campaign_criterion_status_guard.install_campaign_criterion_status_guard()
+        install_campaign_criterion_status_guard()
         self.guard = mutation_safety._apply_create_status_guard
 
     def tearDown(self):
@@ -108,7 +110,7 @@ class TestCampaignCriterionStatusGuard(unittest.TestCase):
     def test_install_is_idempotent(self):
         first = mutation_safety._apply_create_status_guard
 
-        campaign_criterion_status_guard.install_campaign_criterion_status_guard()
+        install_campaign_criterion_status_guard()
 
         self.assertIs(mutation_safety._apply_create_status_guard, first)
 
