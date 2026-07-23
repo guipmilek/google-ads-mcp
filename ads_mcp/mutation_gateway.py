@@ -28,6 +28,7 @@ def get_mutation_crud_status() -> Dict[str, Any]:
         "contract_version": mutation_safety.CRUD_CONTRACT_VERSION,
         "runtime": "PYTHON_FASTMCP_HORIZON",
         "write_mode": "DIRECT",
+        "deployment_env_keys": ["MCP_CREDENTIALS", "MCP_CONFIG"],
         "dry_run_supported": True,
         "approval_workflow": False,
         "native_validate_only_before_live_execution": True,

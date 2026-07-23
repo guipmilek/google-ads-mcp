@@ -34,24 +34,28 @@ library. Use `get_mutation_schema` before constructing a payload.
 `partial_failure=true`, temporary negative resource IDs are rejected because
 dependent operations cannot safely use partial-failure semantics.
 
-## Configuration
+## Horizon deployment: two keys
 
 ```env
-GOOGLE_ADS_ALLOWED_CUSTOMER_IDS=<comma-separated-10-digit-customer-ids>
-GOOGLE_ADS_MAX_OPERATIONS_PER_REQUEST=20
-
-# Optional spend bounds
-GOOGLE_ADS_MAX_DAILY_BUDGET_MICROS=
-GOOGLE_ADS_MAX_TOTAL_BUDGET_MICROS=
+MCP_CREDENTIALS=<base64-encoded credential envelope>
+MCP_CONFIG={"customers":["8448275903"],"max_operations":20,"max_daily_budget_micros":50000000,"max_total_budget_micros":500000000}
 ```
+
+The credential envelope contains `google_credentials`, `developer_token`, and
+optional `login_customer_id`. `google_credentials` may be omitted when
+workload identity provides ADC.
 
 An empty customer allowlist fails closed. Resource names and all nested
 `customers/...` references must belong to the request customer.
 
-Legacy variables such as `GOOGLE_ADS_MUTATIONS_ENABLED`,
+Legacy Horizon variables such as
+`GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64`,
+`GOOGLE_ADS_DEVELOPER_TOKEN`, `GOOGLE_ADS_LOGIN_CUSTOMER_ID`,
+`GOOGLE_ADS_ALLOWED_CUSTOMER_IDS`, `GOOGLE_ADS_MAX_*`,
+`GOOGLE_ADS_MUTATIONS_ENABLED`,
 `GOOGLE_ADS_ALLOW_REMOVE`, `GOOGLE_ADS_ALLOW_ENABLE`,
 `GOOGLE_ADS_ALLOW_PARTIAL_FAILURE`, and `GOOGLE_ADS_CONFIRMATION_SECRET` are
-ignored and may be removed from Horizon.
+not part of the two-key contract and should be removed from Horizon.
 
 ## Results
 

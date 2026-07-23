@@ -17,6 +17,7 @@ from typing import Any, Dict, List
 from fastmcp.exceptions import ToolError
 
 CRUD_CONTRACT_VERSION = "direct-crud-v1"
+DEPLOY_CONFIG_ENV = "MCP_CONFIG"
 _ACTIONS = ("create", "update", "remove")
 _DEFAULT_MAX_OPERATIONS = 20
 _API_MAX_MUTATE_OPERATIONS = 10_000
@@ -42,41 +43,61 @@ def _normalize_customer_id(customer_id: str) -> str:
     return normalized
 
 
-def _allowed_customer_ids() -> set[str]:
-    raw = os.environ.get("GOOGLE_ADS_ALLOWED_CUSTOMER_IDS", "")
-    return {
-        _normalize_customer_id(value.strip())
-        for value in raw.split(",")
-        if value.strip()
+def _deployment_config() -> Dict[str, Any]:
+    raw = os.environ.get(DEPLOY_CONFIG_ENV, "").strip()
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ToolError(
+            f"{DEPLOY_CONFIG_ENV} must be a valid JSON object."
+        ) from exc
+    if not isinstance(value, dict):
+        raise ToolError(f"{DEPLOY_CONFIG_ENV} must be a JSON object.")
+    supported = {
+        "customers",
+        "max_operations",
+        "max_daily_budget_micros",
+        "max_total_budget_micros",
     }
+    unknown = sorted(set(value) - supported)
+    if unknown:
+        raise ToolError(
+            f"{DEPLOY_CONFIG_ENV} contains unsupported keys: "
+            f"{', '.join(unknown)}."
+        )
+    return value
+
+
+def _allowed_customer_ids() -> set[str]:
+    raw = _deployment_config().get("customers", [])
+    if not isinstance(raw, list):
+        raise ToolError(
+            f"{DEPLOY_CONFIG_ENV}.customers must be an array of customer IDs."
+        )
+    return {_normalize_customer_id(str(value)) for value in raw}
 
 
 def _validate_customer_scope(customer_id: str) -> str:
     normalized = _normalize_customer_id(customer_id)
     allowed = _allowed_customer_ids()
     if not allowed:
-        raise ToolError("GOOGLE_ADS_ALLOWED_CUSTOMER_IDS is not configured.")
+        raise ToolError("MCP_CONFIG.customers is not configured.")
     if normalized not in allowed:
         raise ToolError(
-            f"Customer {normalized} is outside GOOGLE_ADS_ALLOWED_CUSTOMER_IDS."
+            f"Customer {normalized} is outside MCP_CONFIG.customers."
         )
     return normalized
 
 
 def _max_operations() -> int:
-    raw = os.environ.get(
-        "GOOGLE_ADS_MAX_OPERATIONS_PER_REQUEST",
-        str(_DEFAULT_MAX_OPERATIONS),
-    )
-    try:
-        value = int(raw)
-    except ValueError as exc:
-        raise ToolError(
-            "GOOGLE_ADS_MAX_OPERATIONS_PER_REQUEST must be an integer."
-        ) from exc
+    value = _deployment_config().get("max_operations", _DEFAULT_MAX_OPERATIONS)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ToolError("MCP_CONFIG.max_operations must be an integer.")
     if not 1 <= value <= _API_MAX_MUTATE_OPERATIONS:
         raise ToolError(
-            "GOOGLE_ADS_MAX_OPERATIONS_PER_REQUEST must be between 1 and "
+            "MCP_CONFIG.max_operations must be between 1 and "
             f"{_API_MAX_MUTATE_OPERATIONS}."
         )
     return value
@@ -180,17 +201,15 @@ def _positive_micros(value: Any, field_name: str) -> int:
     return amount
 
 
-def _configured_positive_limit(name: str) -> int | None:
-    raw = os.environ.get(name)
-    if not raw:
+def _configured_positive_limit(key: str) -> int | None:
+    value = _deployment_config().get(key)
+    if value is None:
         return None
-    try:
-        limit = int(raw)
-    except ValueError as exc:
-        raise ToolError(f"{name} must be an integer.") from exc
-    if limit <= 0:
-        raise ToolError(f"{name} must be greater than zero.")
-    return limit
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ToolError(f"MCP_CONFIG.{key} must be an integer.")
+    if value <= 0:
+        raise ToolError(f"MCP_CONFIG.{key} must be greater than zero.")
+    return value
 
 
 def _validate_budget_limit(resource_name: str, data: Dict[str, Any]) -> None:
@@ -199,7 +218,7 @@ def _validate_budget_limit(resource_name: str, data: Dict[str, Any]) -> None:
 
     if "amount_micros" in data:
         amount = _positive_micros(data["amount_micros"], "amount_micros")
-        limit = _configured_positive_limit("GOOGLE_ADS_MAX_DAILY_BUDGET_MICROS")
+        limit = _configured_positive_limit("max_daily_budget_micros")
         if limit is not None and amount > limit:
             raise ToolError(
                 f"Campaign budget {amount} micros exceeds the configured "
@@ -210,13 +229,11 @@ def _validate_budget_limit(resource_name: str, data: Dict[str, Any]) -> None:
         total = _positive_micros(
             data["total_amount_micros"], "total_amount_micros"
         )
-        total_limit = _configured_positive_limit(
-            "GOOGLE_ADS_MAX_TOTAL_BUDGET_MICROS"
-        )
+        total_limit = _configured_positive_limit("max_total_budget_micros")
         if total_limit is None:
             raise ToolError(
                 "CampaignBudget total_amount_micros requires "
-                "GOOGLE_ADS_MAX_TOTAL_BUDGET_MICROS."
+                "MCP_CONFIG.max_total_budget_micros."
             )
         if total > total_limit:
             raise ToolError(

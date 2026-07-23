@@ -5,11 +5,16 @@
 
 """Regression tests for the direct GoogleAdsService.Mutate contract."""
 
+import base64
 import inspect
+import json
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import horizon_server
 from fastmcp.exceptions import ToolError
 
 from ads_mcp import mutation_engine, mutation_gateway, mutation_safety
@@ -17,10 +22,41 @@ from ads_mcp.tools.mutations import mutations_mcp
 
 
 class TestMutateRequest(unittest.TestCase):
+    def test_shared_credential_envelope_materializes_ads_settings(self):
+        credentials = {"type": "authorized_user", "client_id": "test"}
+        envelope = {
+            "google_credentials": credentials,
+            "developer_token": "dev-token",
+            "login_customer_id": "123-456-7890",
+        }
+        encoded = base64.b64encode(json.dumps(envelope).encode()).decode()
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "adc.json"
+            with (
+                patch.dict(
+                    os.environ, {"MCP_CREDENTIALS": encoded}, clear=True
+                ),
+                patch.object(horizon_server, "_ADC_PATH", target),
+            ):
+                configured = horizon_server.configure_deployment_credentials()
+                self.assertEqual(target, configured)
+                self.assertEqual(credentials, json.loads(target.read_text()))
+                self.assertEqual(
+                    "dev-token", os.environ["GOOGLE_ADS_DEVELOPER_TOKEN"]
+                )
+                self.assertEqual(
+                    "1234567890",
+                    os.environ["GOOGLE_ADS_LOGIN_CUSTOMER_ID"],
+                )
+
     def _environment(self):
         return {
-            "GOOGLE_ADS_ALLOWED_CUSTOMER_IDS": "8448275903",
-            "GOOGLE_ADS_MAX_OPERATIONS_PER_REQUEST": "20",
+            "MCP_CONFIG": json.dumps(
+                {
+                    "customers": ["8448275903"],
+                    "max_operations": 20,
+                }
+            ),
             "GOOGLE_ADS_MUTATIONS_ENABLED": "false",
             "GOOGLE_ADS_ALLOW_REMOVE": "false",
             "GOOGLE_ADS_CONFIRMATION_SECRET": "unused",
@@ -177,7 +213,7 @@ class TestMutateRequest(unittest.TestCase):
 
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(
-                ToolError, "ALLOWED_CUSTOMER_IDS is not configured"
+                ToolError, "MCP_CONFIG.customers is not configured"
             ):
                 mutation_safety._validate_customer_scope("8448275903")
 

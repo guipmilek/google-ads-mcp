@@ -78,17 +78,15 @@ def _create_credentials() -> google.auth.credentials.Credentials:
 
 
 def _get_developer_token() -> str:
-    """Returns the developer token from GOOGLE_ADS_DEVELOPER_TOKEN."""
+    """Returns the token materialized from MCP_CREDENTIALS."""
     dev_token = os.environ.get("GOOGLE_ADS_DEVELOPER_TOKEN")
     if dev_token is None:
-        raise ValueError(
-            "GOOGLE_ADS_DEVELOPER_TOKEN environment variable not set."
-        )
+        raise ValueError("MCP_CREDENTIALS.developer_token is not configured.")
     return dev_token
 
 
 def _get_login_customer_id() -> str | None:
-    """Returns GOOGLE_ADS_LOGIN_CUSTOMER_ID when configured."""
+    """Returns the optional login customer materialized from MCP_CREDENTIALS."""
     return os.environ.get("GOOGLE_ADS_LOGIN_CUSTOMER_ID")
 
 
