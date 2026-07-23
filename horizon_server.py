@@ -16,10 +16,4 @@ credentials_path.write_bytes(base64.b64decode(encoded_credentials))
 
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credentials_path)
 
-from ads_mcp.campaign_criterion_status_guard import (
-    install_campaign_criterion_status_guard,
-)
-
-install_campaign_criterion_status_guard()
-
 from ads_mcp.coordinator import mcp
