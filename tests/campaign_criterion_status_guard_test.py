@@ -65,7 +65,7 @@ class TestCampaignCriterionStatusGuard(unittest.TestCase):
         data = {
             "campaign": "customers/8448275903/campaigns/24055919265",
             "location": {
-                "geo_target_constant": "geoTargetConstants/1001773"
+                "geo_target_constant": "geoTargetConstants/1001773",
             },
         }
 
